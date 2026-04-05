@@ -838,7 +838,7 @@ local selectedRoleIdx  = 1
 local MAX_RESULTS = 50
 local ROW_H       = 30
 
-local CONF_CHAR = "|cff%02x%02x%02x●|r"
+local CONF_CHAR = "|cff%02x%02x%02x*|r"
 local function ConfDot(level)
     local c = CONF_COLORS[level+1] or CONF_COLORS[1]
     return CONF_CHAR:format(c[1]*255, c[2]*255, c[3]*255)
@@ -907,8 +907,8 @@ local function GetOrCreateRow(index)
                 GameTooltip:AddLine("|cff888888"..table.concat(self._families,"  •  ").."|r")
             end
             local favHint = IsFavourite(self._spellId)
-                and "|cffFFD700★ Right-click → Remove Favourite|r"
-                 or "|cff888888☆ Right-click → Add Favourite / Blacklist|r"
+                and "|cffFFD700* Right-click to Remove Favourite|r"
+                 or "|cff888888* Right-click to Add Favourite / Blacklist|r"
             GameTooltip:AddLine(" "); GameTooltip:AddLine(favHint)
             GameTooltip:Show()
         end
@@ -944,8 +944,8 @@ local function GetOrCreateRow(index)
             {text=sName, isTitle=true, notCheckable=true},
             {
                 text = isfav
-                    and "|cffFFD700★ Remove from Favourites|r"
-                     or "|cff888855☆ Add to Favourites|r",
+                    and "|cffFFD700* Remove from Favourites|r"
+                     or "|cff888855* Add to Favourites|r",
                 notCheckable=true,
                 func=function()
                     ToggleFavourite(sid)
@@ -1019,7 +1019,7 @@ local function DisplayResults(results, className, role)
         end
 
         if isbl then
-            row._rank:SetText("|cffAA2222⊘|r")
+            row._rank:SetText("|cffAA2222-|r")
             row._icon:SetDesaturated(true)
             row._name:SetTextColor(0.40,0.38,0.38); row._name:SetText(sn)
             row._qual:SetTextColor(0.40,0.38,0.38); row._qual:SetText(QUALITY_NAME[quality] or "?")
@@ -1027,9 +1027,9 @@ local function DisplayResults(results, className, role)
             row._dot:SetText("")
             row._score:SetTextColor(0.38,0.35,0.35); row._score:SetText(math.floor(e.score))
         elseif isfav then
-            row._rank:SetText("|cffFFD700★|r")
+            row._rank:SetText("|cffFFD700*|r")
             row._icon:SetDesaturated(false)
-            row._name:SetTextColor(1,0.9,0.3); row._name:SetText("★ "..sn)
+            row._name:SetTextColor(1,0.9,0.3); row._name:SetText("* "..sn)
             row._qual:SetTextColor(qc[1],qc[2],qc[3]); row._qual:SetText(QUALITY_NAME[quality] or "?")
             row._fam:SetTextColor(0.60,0.55,0.75); row._fam:SetText(table.concat(fams," • "))
             row._dot:SetText(ConfDot(e.confLevel or 0))
@@ -1058,15 +1058,15 @@ local function DisplayResults(results, className, role)
         local blc = BlacklistCount()
         local fvc = FavouriteCount()
         local extras = ""
-        if fvc > 0 then extras = extras .. "  ·  |cffFFD700★ "..fvc.." starred|r" end
-        if blc > 0 then extras = extras .. "  ·  |cffAA2222⊘ "..blc.." blacklisted|r" end
+        if fvc > 0 then extras = extras .. "  ·  |cffFFD700* "..fvc.." starred|r" end
+        if blc > 0 then extras = extras .. "  ·  |cffAA2222- "..blc.." blacklisted|r" end
         infoText:SetText(string.format(
             "Showing |cffFFD700%d|r echoes  ·  |cff%02x%02x%02x%s|r  |cff888888›|r  |cff00CCFF%s|r%s",
             shown, cc[1]*255, cc[2]*255, cc[3]*255, className, role, extras))
     end
     if blBtn then
         local blc = BlacklistCount()
-        blBtn:SetText(blc > 0 and ("⊘ Blacklist ("..blc..")") or "⊘ Blacklist")
+        blBtn:SetText(blc > 0 and ("Blacklist ("..blc..")") or "Blacklist")
     end
     if aiStatsBar then
         local classRole = CLASS_INTERNAL[selectedClassIdx] .. "_" .. role
@@ -1197,7 +1197,7 @@ end
 local function RefreshBlCount()
     local n = BlacklistCount()
     if blBtn then
-        blBtn:SetText(n>0 and ("⊘ Blacklist ("..n..")") or "⊘ Blacklist")
+        blBtn:SetText(n>0 and ("Blacklist ("..n..")") or "Blacklist")
     end
     if blListLabel then
         blListLabel:SetText("|cffAA8833Currently Blacklisted|r |cff666666("..n..")|r")
@@ -1224,7 +1224,7 @@ local function RefreshBlListRows()
         row._icon:SetTexture(GetCachedSpell(e.spellId).icon)
         row._icon:SetDesaturated(true)
         row._lbl:SetTextColor(0.80,0.36,0.36)
-        row._lbl:SetText("|cffAA2222⊘|r "..e.name)
+        row._lbl:SetText("|cffAA2222-|r "..e.name)
         row._btn:SetText("Remove")
         local sid = e.spellId
         row._btn:SetScript("OnClick", function()
@@ -1262,7 +1262,7 @@ RefreshBlSearchResults = function(query)
         if isbl then
             row._icon:SetDesaturated(true)
             row._lbl:SetTextColor(0.40,0.36,0.36)
-            row._lbl:SetText("|cffAA2222⊘|r "..e.name.." |cff555555("..qn..")|r")
+            row._lbl:SetText("|cffAA2222-|r "..e.name.." |cff555555("..qn..")|r")
             row._btn:SetText("Remove")
         else
             row._icon:SetDesaturated(false)
@@ -1581,9 +1581,9 @@ local function BuildMainFrame()
     local function RefreshStatus()
         local db=GetDB()
         if db.autoSelect then
-            statusText:SetText("|cff44FF44● Active|r — auto-picking best echo for |cff00CCFF"..(db.selectedRole or "?").."|r")
+            statusText:SetText("|cff44FF44[ON]|r Auto-picking best echo for |cff00CCFF"..(db.selectedRole or "?").."|r")
         else
-            statusText:SetText("|cffFF6666● Inactive|r — enable above to auto-pick echoes.")
+            statusText:SetText("|cffFF6666[OFF]|r Enable above to auto-pick echoes.")
         end
     end
 
@@ -1627,7 +1627,7 @@ local function BuildMainFrame()
         activeTabPane = idx
     end
 
-    local tabLabels = {"▶  Advisor","  Stats","⚙  Settings"}
+    local tabLabels = {"Advisor", "Stats", "Settings"}
     local tabW = 196
     for i, lbl in ipairs(tabLabels) do
         local tbtn = CreateFrame("Button",nil,mainFrame)
@@ -1733,7 +1733,7 @@ local function BuildMainFrame()
 
     blBtn = CreateFrame("Button",nil,advisorPane,"GameMenuButtonTemplate")
     blBtn:SetSize(148,24); blBtn:SetPoint("TOPLEFT",advisorPane,"TOPLEFT",20,-42)
-    blBtn:SetText("⊘ Blacklist")
+    blBtn:SetText("Blacklist")
     blBtn:SetScript("OnClick",function()
         if not blFrame then BuildBlacklistFrame(); return end
         if blFrame:IsShown() then blFrame:Hide() else blFrame:Show() end
@@ -1747,7 +1747,7 @@ local function BuildMainFrame()
 
     local recBtn = CreateFrame("Button",nil,advisorPane,"GameMenuButtonTemplate")
     recBtn:SetSize(172,28); recBtn:SetPoint("TOPLEFT",advisorPane,"TOPLEFT",185,-40)
-    recBtn:SetText("▶  Recommend Echoes")
+    recBtn:SetText(">> Recommend Echoes")
     recBtn:SetScript("OnClick",RunRecommendation)
 
     local resetBtn = CreateFrame("Button",nil,advisorPane,"GameMenuButtonTemplate")
@@ -2188,7 +2188,7 @@ SlashCmdList["EBBLACKLIST"] = function(msg)
         else
             table.sort(list)
             print("|cffFFD700[Echo Buddy]|r Blacklisted echoes ("..#list.."):")
-            for _, name in ipairs(list) do print("  |cffAA2222⊘|r "..name) end
+            for _, name in ipairs(list) do print("  |cffAA2222-|r "..name) end
             print("|cff888888Right-click echoes in the Advisor, or use /ebblacklist clear|r")
         end
     end
@@ -2216,7 +2216,7 @@ SlashCmdList["EBSTATS"] = function()
                 role, tc, tr, te))
         end
     end
-    print("|cff888888Use /eb → Stats tab for full run history.|r")
+    print("|cff888888Use /eb - Stats tab for full run history.|r")
 end
 
 SLASH_EBRESET1="/ebreset"
