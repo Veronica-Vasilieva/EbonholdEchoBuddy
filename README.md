@@ -30,17 +30,17 @@ Every echo choice and every run outcome teaches the addon which echoes actually 
 | Signal | How it works |
 |---|---|
 | **ELO ratings** | Each time echoes are offered together, the chosen one "beats" the unchosen ones. Ratings update using chess-style ELO (K=32 for new echoes, K=16 once established). Stored **per class+role** (e.g. WARRIOR_Tank) so a Warrior's data never influences a Mage. |
-| **Run EMA** | On death, every echo in that run gets its average level-reached updated: `avg = 0.70 × old + 0.30 × new`. Echoes that survive to higher levels score better. |
+| **Run EMA** | On death, every echo in that run gets its average level-reached updated: `avg = 0.70 * old + 0.30 * new`. Echoes that survive to higher levels score better. |
 | **UCB1 exploration** | Rarely-seen echoes receive a small bonus to prevent the model permanently ignoring uncommon picks. The denominator is scoped per class+role for accurate exploration. |
 
-**Confidence blending** means the advisor starts at 100% static scoring and gradually shifts toward AI scores as data accumulates. Full AI confidence is reached after 30 comparisons per echo. Confidence is shown as a coloured dot on every row:
+**Confidence blending** means the advisor starts at 100% static scoring and gradually shifts toward AI scores as data accumulates. Full AI confidence is reached after 30 comparisons per echo. Confidence is shown on every row:
 
-| Dot | Meaning |
+| Indicator | Meaning |
 |---|---|
-| ⚫ Grey | No data — static score only |
-| 🟡 Yellow | Learning (3–9 comparisons) |
-| 🟠 Orange | Building (10–29 comparisons) |
-| 🟢 Green | Confident (30+ comparisons) |
+| Grey `(?)` | No data — static score only |
+| Yellow `(~)` | Learning (3–9 comparisons) |
+| Orange `(+)` | Building (10–29 comparisons) |
+| Green `(AI)` | Confident (30+ comparisons) |
 
 Learning data persists across sessions via `SavedVariables` and is stored per class+role, so your Warrior Tank data never pollutes your Mage Caster DPS data.
 
@@ -76,23 +76,23 @@ Learning data persists across sessions via `SavedVariables` and is stored per cl
 
 ```
 Static score  =  QualityBase[quality]
-               + primaryBonus   × difficultyMult × depthScale
-               + secondaryBonus × difficultyMult × depthScale
+               + primaryBonus   * difficultyMult * depthScale
+               + secondaryBonus * difficultyMult * depthScale
 
-Synergy bonus   = FAMILY_SYNERGY_BONUS (8) × min(echoes_in_build_with_same_family, 3)
+Synergy bonus   = FAMILY_SYNERGY_BONUS (8) * min(echoes_in_build_with_same_family, 3)
 Stack bonus     = +20 if one pick away from completing a stack
                = -999 if already at maxStack (echo excluded)
 Favourite bonus = +25 if echo is starred by the player
 
-ELO adjustment  = clamp((ELO − 1200) / 400 × 25,  −25, +25)
-Run adjustment  = clamp((avgLevelReached / 80 − 0.5) × 30,  −15, +15)
-UCB1 bonus      = min(8 × √(ln(roleTotal) / comparisons),  10)
+ELO adjustment  = clamp((ELO - 1200) / 400 * 25,  -25, +25)
+Run adjustment  = clamp((avgLevelReached / 80 - 0.5) * 30,  -15, +15)
+UCB1 bonus      = min(8 * sqrt(ln(roleTotal) / comparisons),  10)
 
 confidence      = min(1.0, comparisons / 30)
 
 Final score     = StaticScore + Synergy + Stack + Favourite
-                + (ELO_adj + Run_adj) × confidence
-                + UCB1_bonus × (1 − confidence)
+                + (ELO_adj + Run_adj) * confidence
+                + UCB1_bonus * (1 - confidence)
 ```
 
 **Depth scaling** — as you progress deeper into a run, primary role bonuses increase by up to +30% at level 80 and survivability bonuses decrease by up to 50%, rewarding offensive specialisation in the late game.
@@ -108,9 +108,9 @@ Switch between presets in the **Settings tab** to tune the scoring toward your p
 
 | Preset | Primary mult | Secondary mult | Best for |
 |---|---|---|---|
-| **Standard** | ×1.0 | ×1.0 | General play |
-| **Speedrun** | ×1.4 | ×0.4 | Maximum damage output |
-| **Hardcore** | ×0.7 | ×1.8 | Maximum survivability |
+| **Standard** | x1.0 | x1.0 | General play |
+| **Speedrun** | x1.4 | x0.4 | Maximum damage output |
+| **Hardcore** | x0.7 | x1.8 | Maximum survivability |
 
 ---
 
@@ -131,14 +131,18 @@ Switch between presets in the **Settings tab** to tune the scoring toward your p
 **Favourites** — Right-click any echo in the Advisor and select **Add to Favourites**. Starred echoes:
 - Receive a flat +25 score bonus
 - Are sorted to the top of the advisor list (above all other echoes)
-- Display with a gold `★` prefix and highlighted row
+- Display with a `*` prefix and highlighted row
 
-**Blacklist** — Right-click any echo and select **Add to Blacklist**, or open the **Blacklist Manager** with the `⊘ Blacklist` button. Blacklisted echoes:
+**Blacklist** — Right-click any echo and select **Add to Blacklist**, or open the **Blacklist Manager** with the `Blacklist` button. Blacklisted echoes:
 - Are completely excluded from auto-select
 - Appear at the very bottom of the advisor list with a muted red style
 - Can be removed individually or all at once with **Clear All**
 
+**All-ranks behaviour** — echoes exist in multiple quality tiers (Common through Epic) that share the same underlying ability. Blacklisting or favouriting any rank of an echo applies to **all ranks simultaneously**, so you never need to handle each quality separately. The same rule applies when removing from the list.
+
 An echo cannot be both Favourited and Blacklisted at the same time — adding to one automatically removes from the other.
+
+**Spell icons** — every row in the Blacklist Manager displays the echo's spell icon for quick visual identification, matching the style used elsewhere in the game UI.
 
 ---
 
@@ -167,7 +171,7 @@ All configuration options in one place:
 
 Your entire AI learning database can be exported to a compact string and imported on another client or shared with other players.
 
-1. Open `/eb` → **Settings** tab
+1. Open `/eb` -> **Settings** tab
 2. Click **Export Data** — the string appears in the box (Ctrl+A, Ctrl+C to copy)
 3. On the target client, paste the string into the Import box and click **Import Data**
 
@@ -198,10 +202,20 @@ At each login, zero-data entries are automatically pruned from `EchoBuddyLearnDB
 
 | Version | Changes |
 |---|---|
+| 4.1 | All-ranks blacklist/favourite (groupId-based, all quality tiers affected together) · Spell icons in Blacklist Manager rows · Deduplicated search results in Blacklist Manager (one entry per echo, highest quality shown) · Hardened IsBlacklisted with legacy save compatibility · ASCII symbol replacements throughout (WoW 3.3.5a font compatibility) · BlacklistCount/FavouriteCount now count unique echoes not raw spellId entries |
 | 4.0 | Build synergy scoring · Stack awareness · Class-specific ELO keys · Per-role UCB1 fix · Run depth multiplier · Favourites system · Toast shows top-3 alternatives · Spell cache · ELO stale data decay · Run history & Stats tab · Hook safety guard · SavedVar pruning · Difficulty presets (Standard/Speedrun/Hardcore) · Export/Import AI data · Tab-based GUI (Advisor/Stats/Settings) |
 | 3.0 | AI learning engine (ELO + EMA + UCB1), confidence blending, visual redesign, overflow fix |
 | 2.0 | Auto-select engine, PerkUI hook, toast notifications, blacklist manager |
 | 1.0 | Build Advisor GUI, static scoring, class/role filtering |
+
+---
+
+## Contributors
+
+| Contributor | Contribution |
+|---|---|
+| **Nu/Veronica** | Author — all core development |
+| **SypherRed** | PR #2 — independently proposed the grouped-rank IsBlacklisted defensive check; their hardened approach was adopted for legacy save compatibility |
 
 ---
 
