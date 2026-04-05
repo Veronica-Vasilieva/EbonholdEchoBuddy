@@ -1140,15 +1140,35 @@ local function SearchEchoes(query)
     query = query:lower()
     local perkDB = ProjectEbonhold and ProjectEbonhold.PerkDatabase
     if not perkDB then return {} end
-    local out = {}
+
+    -- Collect all name-matching perks, then deduplicate by groupId (highest quality wins)
+    -- This prevents the same echo appearing multiple times due to rank/variant entries
+    local bestByGroup, ungrouped = {}, {}
     for spellId, perk in pairs(perkDB) do
         local name = GetCachedSpell(spellId).name
         if name:lower():find(query, 1, true) then
-            table.insert(out, {spellId=spellId, name=name, quality=perk.quality or 0})
-            if #out >= 20 then break end
+            local gid = perk.groupId
+            if gid and gid > 0 then
+                if not bestByGroup[gid] or (perk.quality or 0) > bestByGroup[gid].quality then
+                    bestByGroup[gid] = {spellId=spellId, name=name, quality=perk.quality or 0}
+                end
+            else
+                table.insert(ungrouped, {spellId=spellId, name=name, quality=perk.quality or 0})
+            end
         end
     end
-    table.sort(out, function(a,b) return a.name < b.name end)
+
+    local out = {}
+    for _, e in pairs(bestByGroup) do table.insert(out, e) end
+    for _, e in ipairs(ungrouped)   do table.insert(out, e) end
+
+    table.sort(out, function(a, b)
+        if a.name ~= b.name then return a.name < b.name end
+        return a.quality > b.quality
+    end)
+
+    -- Cap results after dedup
+    if #out > 20 then for i = 21, #out do out[i] = nil end end
     return out
 end
 
@@ -1157,9 +1177,17 @@ local function GetOrCreateBlRow(parent, cache, index, rowW)
     local row = CreateFrame("Frame", nil, parent)
     row:SetSize(rowW, 22)
     local bg = row:CreateTexture(nil,"BACKGROUND"); bg:SetAllPoints(); row._bg = bg
+
+    -- Spell icon (left edge)
+    local icon = row:CreateTexture(nil,"ARTWORK")
+    icon:SetSize(18,18); icon:SetPoint("LEFT",row,"LEFT",4,0)
+    icon:SetTexCoord(0.08,0.92,0.08,0.92); row._icon = icon
+
+    -- Label shifted right to make room for the icon (4px left + 18px icon + 4px gap = 26px)
     local lbl = row:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    lbl:SetPoint("LEFT",row,"LEFT",6,0); lbl:SetSize(rowW-108,22)
+    lbl:SetPoint("LEFT",row,"LEFT",26,0); lbl:SetSize(rowW-130,22)
     lbl:SetJustifyH("LEFT"); row._lbl = lbl
+
     local btn = CreateFrame("Button",nil,row,"GameMenuButtonTemplate")
     btn:SetSize(92,18); btn:SetPoint("RIGHT",row,"RIGHT",-4,0); row._btn = btn
     cache[index] = row
@@ -1193,6 +1221,8 @@ local function RefreshBlListRows()
         row._bg:SetTexture("Interface\\Buttons\\WHITE8X8")
         row._bg:SetVertexColor(i%2==0 and 0.16 or 0.12, 0.03, 0.03)
         row._bg:SetAlpha(i%2==0 and 0.55 or 0.45)
+        row._icon:SetTexture(GetCachedSpell(e.spellId).icon)
+        row._icon:SetDesaturated(true)
         row._lbl:SetTextColor(0.80,0.36,0.36)
         row._lbl:SetText("|cffAA2222⊘|r "..e.name)
         row._btn:SetText("Remove")
@@ -1228,11 +1258,14 @@ RefreshBlSearchResults = function(query)
         row._bg:SetTexture("Interface\\Buttons\\WHITE8X8")
         row._bg:SetVertexColor(i%2==0 and 0.06 or 0, i%2==0 and 0.04 or 0, i%2==0 and 0.16 or 0)
         row._bg:SetAlpha(i%2==0 and 0.40 or 0)
+        row._icon:SetTexture(GetCachedSpell(e.spellId).icon)
         if isbl then
+            row._icon:SetDesaturated(true)
             row._lbl:SetTextColor(0.40,0.36,0.36)
             row._lbl:SetText("|cffAA2222⊘|r "..e.name.." |cff555555("..qn..")|r")
             row._btn:SetText("Remove")
         else
+            row._icon:SetDesaturated(false)
             row._lbl:SetTextColor(qc[1],qc[2],qc[3])
             row._lbl:SetText(e.name.." |cff665599("..qn..")|r")
             row._btn:SetText("+ Blacklist")
