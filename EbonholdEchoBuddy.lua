@@ -142,22 +142,60 @@ end
 local function SaveRole(r)  GetDB().selectedRole = r end
 local function SaveAuto(v)  GetDB().autoSelect   = v end
 
+-- Returns all spellIds that share the same groupId as the given spellId.
+-- For ungrouped echoes (groupId nil or 0) returns just the single spellId.
+-- This ensures blacklist/favourite actions apply to every rank of an echo.
+local function GetGroupSpellIds(spellId)
+    local perkDB = ProjectEbonhold and ProjectEbonhold.PerkDatabase
+    if not perkDB then return {spellId} end
+    local perk = perkDB[spellId]
+    if not perk then return {spellId} end
+    local gid = perk.groupId
+    if not gid or gid == 0 then return {spellId} end
+    local ids = {}
+    for sid, p in pairs(perkDB) do
+        if p.groupId == gid then table.insert(ids, sid) end
+    end
+    return ids
+end
+
 -- Blacklist helpers
 local function IsBlacklisted(spellId)
     return GetDB().blacklist[spellId] == true
 end
 local function ToggleBlacklist(spellId)
-    local db = GetDB()
+    local db      = GetDB()
+    local groupIds = GetGroupSpellIds(spellId)
     if db.blacklist[spellId] then
-        db.blacklist[spellId] = nil; return false
+        -- Remove every rank in the group
+        for _, sid in ipairs(groupIds) do
+            db.blacklist[sid] = nil
+        end
+        return false
     else
-        db.blacklist[spellId]   = true
-        db.favourites[spellId]  = nil   -- cannot be both
+        -- Add every rank in the group; a blacklisted echo cannot be a favourite
+        for _, sid in ipairs(groupIds) do
+            db.blacklist[sid]  = true
+            db.favourites[sid] = nil
+        end
         return true
     end
 end
 local function BlacklistCount()
-    local n=0; for _ in pairs(GetDB().blacklist) do n=n+1 end; return n
+    -- Count unique echoes (groups), not raw spellId entries
+    local perkDB = ProjectEbonhold and ProjectEbonhold.PerkDatabase
+    local bl     = GetDB().blacklist
+    local seen, n = {}, 0
+    for sid in pairs(bl) do
+        local perk = perkDB and perkDB[sid]
+        local gid  = perk and perk.groupId
+        if gid and gid > 0 then
+            if not seen[gid] then seen[gid] = true; n = n + 1 end
+        else
+            n = n + 1
+        end
+    end
+    return n
 end
 
 -- Favourites helpers
@@ -165,17 +203,35 @@ local function IsFavourite(spellId)
     return GetDB().favourites[spellId] == true
 end
 local function ToggleFavourite(spellId)
-    local db = GetDB()
+    local db       = GetDB()
+    local groupIds = GetGroupSpellIds(spellId)
     if db.favourites[spellId] then
-        db.favourites[spellId] = nil; return false
+        for _, sid in ipairs(groupIds) do
+            db.favourites[sid] = nil
+        end
+        return false
     else
-        db.favourites[spellId] = true
-        db.blacklist[spellId]  = nil   -- cannot be both
+        for _, sid in ipairs(groupIds) do
+            db.favourites[sid] = true
+            db.blacklist[sid]  = nil
+        end
         return true
     end
 end
 local function FavouriteCount()
-    local n=0; for _ in pairs(GetDB().favourites) do n=n+1 end; return n
+    local perkDB = ProjectEbonhold and ProjectEbonhold.PerkDatabase
+    local fv     = GetDB().favourites
+    local seen, n = {}, 0
+    for sid in pairs(fv) do
+        local perk = perkDB and perkDB[sid]
+        local gid  = perk and perk.groupId
+        if gid and gid > 0 then
+            if not seen[gid] then seen[gid] = true; n = n + 1 end
+        else
+            n = n + 1
+        end
+    end
+    return n
 end
 
 -- Run history helpers
@@ -1205,10 +1261,28 @@ local function RefreshBlCount()
 end
 
 local function RefreshBlListRows()
-    local bl      = GetDB().blacklist
-    local entries = {}
+    local bl     = GetDB().blacklist
+    local perkDB = ProjectEbonhold and ProjectEbonhold.PerkDatabase
+    -- Deduplicate by groupId: show one row per echo, using the highest-quality rank
+    local seenGroups = {}
+    local entries    = {}
     for sid in pairs(bl) do
-        table.insert(entries, {spellId=sid, name=GetCachedSpell(sid).name})
+        local perk = perkDB and perkDB[sid]
+        local gid  = perk and perk.groupId
+        if gid and gid > 0 then
+            local existing = seenGroups[gid]
+            if not existing then
+                seenGroups[gid] = {spellId=sid, name=GetCachedSpell(sid).name, quality=perk.quality or 0}
+                table.insert(entries, seenGroups[gid])
+            elseif (perk.quality or 0) > existing.quality then
+                -- Upgrade to the higher-quality representative for display
+                existing.spellId = sid
+                existing.name    = GetCachedSpell(sid).name
+                existing.quality = perk.quality or 0
+            end
+        else
+            table.insert(entries, {spellId=sid, name=GetCachedSpell(sid).name, quality=0})
+        end
     end
     table.sort(entries, function(a,b) return a.name < b.name end)
     for i = #entries+1, #blListRows do
