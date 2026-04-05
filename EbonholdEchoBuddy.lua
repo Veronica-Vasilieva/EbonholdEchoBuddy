@@ -161,7 +161,14 @@ end
 
 -- Blacklist helpers
 local function IsBlacklisted(spellId)
-    return GetDB().blacklist[spellId] == true
+    -- Check the direct entry first (fast path), then scan the whole group
+    -- so legacy saves with only one rank stored are still handled correctly
+    local bl = GetDB().blacklist
+    if bl[spellId] == true then return true end
+    for _, sid in ipairs(GetGroupSpellIds(spellId)) do
+        if bl[sid] == true then return true end
+    end
+    return false
 end
 local function ToggleBlacklist(spellId)
     local db      = GetDB()
