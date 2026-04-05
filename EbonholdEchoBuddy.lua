@@ -143,16 +143,54 @@ local function SaveRole(r)  GetDB().selectedRole = r end
 local function SaveAuto(v)  GetDB().autoSelect   = v end
 
 -- Blacklist helpers
+local function GetGroupedPerkSpellIds(spellId)
+    local perkDB = ProjectEbonhold and ProjectEbonhold.PerkDatabase
+    local perk   = perkDB and perkDB[spellId]
+    local gid    = perk and perk.groupId
+    if not perkDB or not gid or gid <= 0 then
+        return {spellId}
+    end
+
+    local ids = {}
+    for sid, candidate in pairs(perkDB) do
+        if candidate and candidate.groupId == gid then
+            table.insert(ids, sid)
+        end
+    end
+    if #ids == 0 then
+        ids[1] = spellId
+    end
+    return ids
+end
+
 local function IsBlacklisted(spellId)
-    return GetDB().blacklist[spellId] == true
+    local bl = GetDB().blacklist
+    if bl[spellId] == true then return true end
+    for _, sid in ipairs(GetGroupedPerkSpellIds(spellId)) do
+        if bl[sid] == true then return true end
+    end
+    return false
 end
 local function ToggleBlacklist(spellId)
     local db = GetDB()
-    if db.blacklist[spellId] then
-        db.blacklist[spellId] = nil; return false
+    local targets = GetGroupedPerkSpellIds(spellId)
+    local found   = false
+    for _, sid in ipairs(targets) do
+        if db.blacklist[sid] == true then
+            found = true
+        end
+    end
+
+    if found then
+        for _, sid in ipairs(targets) do
+            db.blacklist[sid] = nil
+        end
+        return false
     else
-        db.blacklist[spellId]   = true
-        db.favourites[spellId]  = nil   -- cannot be both
+        for _, sid in ipairs(targets) do
+            db.blacklist[sid]  = true
+            db.favourites[sid] = nil   -- cannot be both
+        end
         return true
     end
 end
@@ -166,11 +204,14 @@ local function IsFavourite(spellId)
 end
 local function ToggleFavourite(spellId)
     local db = GetDB()
+    local targets = GetGroupedPerkSpellIds(spellId)
     if db.favourites[spellId] then
         db.favourites[spellId] = nil; return false
     else
         db.favourites[spellId] = true
-        db.blacklist[spellId]  = nil   -- cannot be both
+        for _, sid in ipairs(targets) do
+            db.blacklist[sid] = nil   -- cannot be both
+        end
         return true
     end
 end

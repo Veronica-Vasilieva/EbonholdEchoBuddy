@@ -198,6 +198,7 @@ At each login, zero-data entries are automatically pruned from `EchoBuddyLearnDB
 
 | Version | Changes |
 |---|---|
+| 4.1 | Blacklist fix so all rarity ranks of the same echo are treated as blacklisted, not just the selected one |
 | 4.0 | Build synergy scoring · Stack awareness · Class-specific ELO keys · Per-role UCB1 fix · Run depth multiplier · Favourites system · Toast shows top-3 alternatives · Spell cache · ELO stale data decay · Run history & Stats tab · Hook safety guard · SavedVar pruning · Difficulty presets (Standard/Speedrun/Hardcore) · Export/Import AI data · Tab-based GUI (Advisor/Stats/Settings) |
 | 3.0 | AI learning engine (ELO + EMA + UCB1), confidence blending, visual redesign, overflow fix |
 | 2.0 | Auto-select engine, PerkUI hook, toast notifications, blacklist manager |
