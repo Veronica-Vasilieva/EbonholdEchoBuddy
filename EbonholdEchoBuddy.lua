@@ -34,11 +34,13 @@ local currentPlayerClass = "WARRIOR"   -- set from UnitClass at PLAYER_LOGIN
 -------------------------------------------------------------------------------
 
 local DB_DEFAULTS = {
-    autoSelect   = false,
-    selectedRole = "Melee DPS",
-    selectDelay  = 0.6,
-    useAIScores  = true,
-    difficulty   = "Standard",
+    autoSelect        = false,
+    selectedRole      = "Melee DPS",
+    selectDelay       = 0.6,
+    useAIScores       = true,
+    difficulty        = "Standard",
+    autoBanishReroll  = false,
+    blacklistAction   = "banish",   -- "banish" | "reroll" | "banish_reroll"
 }
 
 local CLASS_MASK = {
@@ -572,6 +574,51 @@ local function ShowToast(pickedName, score, infoLine, alts)
     end)
 end
 
+-- Attempts to banish or reroll the current echo offer via PerkService.
+-- Probes several naming conventions since the server source isn't exposed.
+-- Returns true if an action was successfully called, false otherwise.
+local function TryBanishReroll()
+    local svc    = ProjectEbonhold and ProjectEbonhold.PerkService
+    if not svc then
+        print("|cffFF4444[Echo Buddy]|r Cannot banish/reroll: PerkService not found.")
+        return false
+    end
+    local action = GetDB().blacklistAction or "banish"
+
+    -- Banish attempt — try every known name variant
+    local function DoBanish()
+        local fn = svc.BanishPerk or svc.Banish or svc.BanishPerks
+                or svc.SkipPerk  or svc.SkipPerks or svc.Skip
+        if fn then fn() return true end
+        return false
+    end
+    -- Reroll attempt — try every known name variant
+    local function DoReroll()
+        local fn = svc.RerollPerk or svc.Reroll or svc.RerollPerks
+                or svc.RefreshPerks or svc.RefreshPerk or svc.Refresh
+        if fn then fn() return true end
+        return false
+    end
+
+    if action == "banish" then
+        if DoBanish() then return true end
+        print("|cffFF4444[Echo Buddy]|r Banish unavailable — no matching PerkService function found.")
+        return false
+    elseif action == "reroll" then
+        if DoReroll() then return true end
+        print("|cffFF4444[Echo Buddy]|r Reroll unavailable — no matching PerkService function found.")
+        return false
+    else  -- "banish_reroll": try banish first, fall back to reroll
+        if DoBanish() then return true end
+        if DoReroll() then
+            print("|cffFFD700[Echo Buddy]|r Banish unavailable, used Reroll instead.")
+            return true
+        end
+        print("|cffFF4444[Echo Buddy]|r Neither Banish nor Reroll found in PerkService.")
+        return false
+    end
+end
+
 local function DoAutoSelect(choices)
     local db     = GetDB()
     local role   = db.selectedRole or "Melee DPS"
@@ -630,7 +677,19 @@ local function DoAutoSelect(choices)
         end
     end
 
-    if #scored == 0 then return end
+    if #scored == 0 then
+        -- Every offered echo is blacklisted. Attempt auto-banish/reroll if enabled.
+        if GetDB().autoBanishReroll then
+            local actionLabel = ({banish="Banish", reroll="Reroll", banish_reroll="Banish/Reroll"})[GetDB().blacklistAction or "banish"] or "Banish"
+            After(GetDB().selectDelay or 0.6, function()
+                if TryBanishReroll() then
+                    ShowToast("All choices blacklisted", 0,
+                        actionLabel.." triggered automatically", {})
+                end
+            end)
+        end
+        return
+    end
     table.sort(scored, function(a,b) return a.score > b.score end)
 
     local best = scored[1]
@@ -2211,6 +2270,84 @@ local function BuildMainFrame()
     resetHint:SetPoint("LEFT",resetAllBtn,"RIGHT",10,0)
     resetHint:SetTextColor(0.40,0.35,0.50)
     resetHint:SetText("Wipes all ELO + run data for every class and role.")
+
+    -- Divider
+    local setDiv4 = settingsPane:CreateTexture(nil,"ARTWORK")
+    setDiv4:SetTexture("Interface\\Buttons\\WHITE8X8")
+    setDiv4:SetPoint("TOPLEFT",settingsPane,"TOPLEFT",15,-368)
+    setDiv4:SetPoint("TOPRIGHT",settingsPane,"TOPRIGHT",-15,-368)
+    setDiv4:SetHeight(1); setDiv4:SetVertexColor(0.88,0.72,0.18,0.50)
+
+    SettingsLabel("|cffBB88FFBlacklist Behaviour|r", -378)
+
+    -- Auto-banish/reroll checkbox
+    local brCB = CreateFrame("CheckButton","EBBBanishRerollCheck",settingsPane,"UICheckButtonTemplate")
+    brCB:SetPoint("TOPLEFT",settingsPane,"TOPLEFT",24,-402); brCB:SetSize(26,26)
+    _G["EBBBanishRerollCheckText"]:SetText("|cffDDDDDDAuto-banish/reroll when all choices are blacklisted|r")
+    brCB:SetChecked(GetDB().autoBanishReroll)
+    brCB:SetScript("OnClick",function(self)
+        GetDB().autoBanishReroll = self:GetChecked() and true or false
+    end)
+    brCB:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
+        GameTooltip:SetText("When auto-select is on and every offered echo is blacklisted,\nautomatically trigger the Banish or Reroll action instead\nof picking a blacklisted echo.",nil,nil,nil,nil,true)
+        GameTooltip:Show()
+    end)
+    brCB:SetScript("OnLeave",function() GameTooltip:Hide() end)
+
+    -- Action selector: Banish / Reroll / Banish then Reroll
+    local brActionLbl = settingsPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    brActionLbl:SetPoint("TOPLEFT",settingsPane,"TOPLEFT",24,-434)
+    brActionLbl:SetTextColor(0.65,0.50,0.90)
+    brActionLbl:SetText("Action when all blacklisted:")
+
+    local BR_ACTIONS = {
+        {key="banish",       label="Banish"},
+        {key="reroll",       label="Reroll"},
+        {key="banish_reroll",label="Banish, then Reroll"},
+    }
+    local brActionBtns = {}
+    local function RefreshBRButtons()
+        local cur = GetDB().blacklistAction or "banish"
+        for _, b in ipairs(brActionBtns) do
+            if b._key == cur then
+                b:SetText("|cffFFD700["..b._label.."]|r")
+            else
+                b:SetText("|cff888877"..b._label.."|r")
+            end
+        end
+    end
+    local brBtnX = 220
+    for i, entry in ipairs(BR_ACTIONS) do
+        local bw = i == 3 and 160 or 90
+        local btn3 = CreateFrame("Button",nil,settingsPane,"GameMenuButtonTemplate")
+        btn3:SetSize(bw,24)
+        btn3:SetPoint("TOPLEFT",settingsPane,"TOPLEFT",brBtnX,-432)
+        brBtnX = brBtnX + bw + 6
+        btn3:SetText(entry.label); btn3._key = entry.key; btn3._label = entry.label
+        btn3:SetScript("OnClick",function()
+            GetDB().blacklistAction = entry.key
+            RefreshBRButtons()
+        end)
+        local tip = {
+            banish        = "Call Banish when all choices are blacklisted.",
+            reroll        = "Call Reroll when all choices are blacklisted.",
+            banish_reroll = "Try Banish first; if unavailable, fall back to Reroll.",
+        }
+        btn3:SetScript("OnEnter",function(self)
+            GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
+            GameTooltip:SetText(tip[entry.key],nil,nil,nil,nil,true)
+            GameTooltip:Show()
+        end)
+        btn3:SetScript("OnLeave",function() GameTooltip:Hide() end)
+        table.insert(brActionBtns, btn3)
+    end
+    RefreshBRButtons()
+
+    local brNote = settingsPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    brNote:SetPoint("TOPLEFT",settingsPane,"TOPLEFT",24,-462)
+    brNote:SetTextColor(0.40,0.38,0.55)
+    brNote:SetText("Note: requires the server to expose a Banish or Reroll function on PerkService.")
 
     ---------------------------------------------------------------------------
     -- Activate Advisor tab by default
