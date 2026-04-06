@@ -574,39 +574,73 @@ local function ShowToast(pickedName, score, infoLine, alts)
     end)
 end
 
--- Attempts to banish or reroll the current echo offer via PerkService.
--- Probes several naming conventions since the server source isn't exposed.
--- Returns true if an action was successfully called, false otherwise.
-local function TryBanishReroll()
-    local svc    = ProjectEbonhold and ProjectEbonhold.PerkService
-    if not svc then
-        print("|cffFF4444[Echo Buddy]|r Cannot banish/reroll: PerkService not found.")
-        return false
+-- Clicks the first PerkChoiceN button whose label text contains the given
+-- search string (case-insensitive). The Banish and Reroll actions are presented
+-- as PerkChoice buttons in the same frame template as echo picks; scanning by
+-- button text is the most reliable way to find them since both showed up as
+-- PerkChoice2 in frame-stack inspection.
+local function ClickPerkChoiceByText(searchText)
+    for i = 1, 9 do
+        local btn = _G["PerkChoice"..i]
+        if btn then
+            -- GetText() on a button returns its label; some buttons wrap the
+            -- text in a child FontString instead, so check both.
+            local txt = (btn.GetText and btn:GetText()) or ""
+            if txt == "" then
+                -- Try the standard Blizzard button text child name
+                local child = _G["PerkChoice"..i.."Text"]
+                if child and child.GetText then txt = child:GetText() or "" end
+            end
+            -- Strip colour codes before comparing
+            txt = txt:gsub("|c%x%x%x%x%x%x%x%x",""):gsub("|r","")
+            if txt:lower():find(searchText:lower(), 1, true) then
+                btn:Click()
+                return true
+            end
+        end
     end
+    return false
+end
+
+-- Attempts to banish or reroll the current echo offer.
+-- Primary path:  click the PerkChoiceN button whose text matches "banish"/"reroll"
+--   (confirmed via frame-stack: both Banish and Reroll buttons are PerkChoiceN frames)
+-- Fallback path: probe PerkService for any known API function name.
+-- Returns true if an action was successfully dispatched.
+local function TryBanishReroll()
     local action = GetDB().blacklistAction or "banish"
 
-    -- Banish attempt — try every known name variant
-    local function DoBanish()
+    -- UI click helpers (primary — frame names confirmed from frame-stack)
+    local function DoBanishClick()  return ClickPerkChoiceByText("banish") end
+    local function DoRerollClick()  return ClickPerkChoiceByText("reroll") end
+
+    -- PerkService API fallback — probe every plausible name variant
+    local svc = ProjectEbonhold and ProjectEbonhold.PerkService
+    local function DoBanishAPI()
+        if not svc then return false end
         local fn = svc.BanishPerk or svc.Banish or svc.BanishPerks
                 or svc.SkipPerk  or svc.SkipPerks or svc.Skip
         if fn then fn() return true end
         return false
     end
-    -- Reroll attempt — try every known name variant
-    local function DoReroll()
+    local function DoRerollAPI()
+        if not svc then return false end
         local fn = svc.RerollPerk or svc.Reroll or svc.RerollPerks
                 or svc.RefreshPerks or svc.RefreshPerk or svc.Refresh
         if fn then fn() return true end
         return false
     end
 
+    local function DoBanish() return DoBanishClick() or DoBanishAPI() end
+    local function DoReroll() return DoRerollClick() or DoRerollAPI() end
+
     if action == "banish" then
         if DoBanish() then return true end
-        print("|cffFF4444[Echo Buddy]|r Banish unavailable — no matching PerkService function found.")
+        print("|cffFF4444[Echo Buddy]|r Banish unavailable — PerkChoice button not found and no matching PerkService function.")
         return false
     elseif action == "reroll" then
         if DoReroll() then return true end
-        print("|cffFF4444[Echo Buddy]|r Reroll unavailable — no matching PerkService function found.")
+        print("|cffFF4444[Echo Buddy]|r Reroll unavailable — PerkChoice button not found and no matching PerkService function.")
         return false
     else  -- "banish_reroll": try banish first, fall back to reroll
         if DoBanish() then return true end
@@ -614,7 +648,7 @@ local function TryBanishReroll()
             print("|cffFFD700[Echo Buddy]|r Banish unavailable, used Reroll instead.")
             return true
         end
-        print("|cffFF4444[Echo Buddy]|r Neither Banish nor Reroll found in PerkService.")
+        print("|cffFF4444[Echo Buddy]|r Neither Banish nor Reroll could be triggered.")
         return false
     end
 end

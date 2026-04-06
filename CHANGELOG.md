@@ -1,3 +1,12 @@
+## [4.3] - 2026-04-06
+
+### Fixed
+- Banish and Reroll now click the actual `PerkChoiceN` UI buttons directly rather than relying solely on guessed PerkService function names
+  - Frame-stack inspection confirmed both Banish and Reroll are rendered as `PerkChoice2` (PerkChoiceN template) buttons
+  - `ClickPerkChoiceByText()` scans `PerkChoice1`–`PerkChoice9`, strips colour codes from button text, and clicks the one whose label contains "banish" or "reroll"
+  - Checks both `GetText()` on the button and the child `PerkChoiceNText` FontString for compatibility with different button templates
+  - PerkService API name-probing is retained as a secondary fallback if the button is not visible
+
 ## [4.2] - 2026-04-06
 
 ### Added
