@@ -1,3 +1,11 @@
+## [4.5] - 2026-04-07
+
+### Fixed
+- Main window enlarged from 660x640 to 780x680 to reduce text crowding
+- Builds tab: [Deactivate] button re-anchored to TOPRIGHT so it no longer overlaps the right column editor
+- Builds tab: editor pane shifted down to y=-44 so the "Build Name" row no longer overlaps the "Active Build" header row
+- Builds tab: column divider x adjusted to match new right-column start position
+
 ## [4.4] - 2026-04-07
 
 ### Added

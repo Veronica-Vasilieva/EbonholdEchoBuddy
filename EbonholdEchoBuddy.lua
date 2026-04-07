@@ -1661,7 +1661,7 @@ end
 -------------------------------------------------------------------------------
 
 local function BuildMainFrame()
-    local W, H = 660, 640
+    local W, H = 780, 680
 
     mainFrame = CreateFrame("Frame","EbonholdEchoBuddyFrame",UIParent)
     mainFrame:SetSize(W,H); mainFrame:SetPoint("CENTER")
@@ -2338,7 +2338,7 @@ local function BuildMainFrame()
     activeBuildLbl:SetText("|cffBB88FFActive Build:|r  |cff666677None|r")
 
     local deactivateBtn = CreateFrame("Button","EBBDeactivateBtn",buildsPane,"GameMenuButtonTemplate")
-    deactivateBtn:SetSize(90,22); deactivateBtn:SetPoint("TOPLEFT",buildsPane,"TOPLEFT",200,-12)
+    deactivateBtn:SetSize(90,22); deactivateBtn:SetPoint("TOPRIGHT",buildsPane,"TOPRIGHT",-14,-12)
     deactivateBtn:SetText("Deactivate")
     deactivateBtn:SetScript("OnEnter",function(self)
         GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
@@ -2360,8 +2360,8 @@ local function BuildMainFrame()
     -- Vertical divider
     local colDiv = buildsPane:CreateTexture(nil,"ARTWORK")
     colDiv:SetTexture("Interface\\Buttons\\WHITE8X8")
-    colDiv:SetPoint("TOPLEFT",buildsPane,"TOPLEFT",235,-8)
-    colDiv:SetPoint("BOTTOMLEFT",buildsPane,"BOTTOMLEFT",235,8)
+    colDiv:SetPoint("TOPLEFT",buildsPane,"TOPLEFT",238,-8)
+    colDiv:SetPoint("BOTTOMLEFT",buildsPane,"BOTTOMLEFT",238,8)
     colDiv:SetWidth(1); colDiv:SetVertexColor(0.38,0.26,0.62,0.50)
 
     local buildListSF = CreateFrame("ScrollFrame","EBBBuildListSF",buildsPane,"UIPanelScrollFrameTemplate")
@@ -2386,7 +2386,7 @@ local function BuildMainFrame()
     editorPlaceholder:SetText("Select a build from the list,\nor create a new one.")
 
     local editorPane = CreateFrame("Frame","EBBBuildEditorPane",buildsPane)
-    editorPane:SetPoint("TOPLEFT",buildsPane,"TOPLEFT",247,-6)
+    editorPane:SetPoint("TOPLEFT",buildsPane,"TOPLEFT",250,-44)
     editorPane:SetPoint("BOTTOMRIGHT",buildsPane,"BOTTOMRIGHT",-14,14)
     editorPane:Hide()
 
