@@ -1,6 +1,6 @@
 # EbonholdEchoBuddy
 
-> **WoW 3.3.5a (WotLK) addon for the Project Ebonhold private server**
+> **WoW 3.3.5a (WotLK) addon for the Project Ebonhold server**
 
 A three-in-one echo companion: it advises the best build for your class and role, automatically selects echoes for you, and gets smarter with every run through a self-improving AI learning engine.
 
@@ -48,13 +48,32 @@ Learning data persists across sessions via `SavedVariables` and is stored per cl
 
 ## Installation
 
-1. Download or clone this repository
-2. Copy the `EbonholdEchoBuddy` folder into your WoW addons directory:
+> **Important:** The addon folder must be named exactly `EbonholdEchoBuddy`. If you download a zip from GitHub the extracted folder may be named something like `EbonholdEchoBuddy-main` or `EbonholdEchoBuddy_tmp_release` — rename it to `EbonholdEchoBuddy` before placing it in your AddOns directory, otherwise WoW will not load it.
+
+### From the Releases page (recommended)
+
+1. Go to the [Releases page](../../releases/latest) and download `EbonholdEchoBuddy-v4.5.zip`
+2. Extract the zip — you will get a folder called `EbonholdEchoBuddy`
+3. Copy that folder into your WoW AddOns directory:
    ```
    World of Warcraft\Interface\AddOns\EbonholdEchoBuddy\
    ```
-3. The addon requires **ProjectEbonhold** to be present (it ships with the Valanior / Project Ebonhold client)
-4. Log in and type `/eb` to open the window
+4. The final path to the main file should look like:
+   ```
+   Interface\AddOns\EbonholdEchoBuddy\EbonholdEchoBuddy.lua
+   ```
+5. Log in and type `/eb` to open the window
+
+### From source (git clone)
+
+1. Clone the repository:
+   ```
+   git clone https://github.com/Veronica-Vasilieva/EbonholdEchoBuddy.git
+   ```
+2. Copy the cloned folder into your AddOns directory — the folder is already named `EbonholdEchoBuddy`, no rename needed
+3. Log in and type `/eb` to open the window
+
+> The addon requires **ProjectEbonhold** to be present — this ships with the Project Ebonhold client and loads automatically.
 
 ---
 
@@ -148,7 +167,7 @@ An echo cannot be both Favourited and Blacklisted at the same time — adding to
 
 ## GUI Tabs
 
-The main window (`/eb`) is organised into three tabs:
+The main window (`/eb`) is organised into five tabs:
 
 ### Advisor tab
 The core echo browser. Select your class and role, click **Recommend Echoes**, and browse the ranked list. Right-click rows to Favourite or Blacklist. The AI stats bar at the bottom shows how much data the model has for the selected class+role.
@@ -158,11 +177,25 @@ A live view of your AI learning progress:
 - Per-role comparison counts, run counts, and echo coverage for your current character's class
 - **Run history** — a scrollable list of your last 50 runs, showing date/time, class, role, and level reached
 
+### Discovery tab
+Novelty Mode — boosts the score of echoes you have not yet picked this run, encouraging wider build variety.
+- Toggle on/off with the checkbox
+- Three bonus strength presets: **Mild** (+20), **Normal** (+35), **Strong** (+50)
+- Live **Current Run Echoes** list showing every echo acquired so far with stack counts
+
+### Builds tab
+Create and manage named echo priority lists.
+- Add up to 20 named builds, each containing any echoes you want to prioritise
+- Set an active build — matching echoes receive a **+50 score bonus** in auto-select (rank-agnostic: any quality tier of the same echo counts)
+- Search for echoes by name and add them to a build with one click
+- Remove individual echoes or delete an entire build
+
 ### Settings tab
 All configuration options in one place:
 - **Blend AI scores** toggle
 - **Auto-select delay** (0.0 – 5.0 seconds)
 - **Difficulty preset** selector (Standard / Speedrun / Hardcore)
+- **Blacklist behaviour** — choose Banish, Reroll, or Banish-then-Reroll when all choices are blacklisted
 - **Export / Import** learning data — share your AI model with guildmates or back it up between clients
 
 ---
@@ -193,7 +226,8 @@ At each login, zero-data entries are automatically pruned from `EchoBuddyLearnDB
 ## Requirements
 
 - WoW client: **3.3.5a (build 12340)**
-- Server: **Project Ebonhold** (requires `ProjectEbonhold.PerkDatabase` and `ProjectEbonhold.PerkService`)
+- Server: **Project Ebonhold** (requires `ProjectEbonhold.PerkDatabase` and `ProjectEbonhold.PerkService`, both of which ship with the Project Ebonhold client)
+- The addon folder must be named **`EbonholdEchoBuddy`** exactly — see Installation above
 - The addon is a **passive observer** — it wraps existing server functions non-destructively and never modifies the base addon
 
 ---
@@ -202,9 +236,13 @@ At each login, zero-data entries are automatically pruned from `EchoBuddyLearnDB
 
 | Version | Changes |
 |---|---|
-| 4.1 | All-ranks blacklist/favourite (groupId-based, all quality tiers affected together) · Spell icons in Blacklist Manager rows · Deduplicated search results in Blacklist Manager (one entry per echo, highest quality shown) · Hardened IsBlacklisted with legacy save compatibility · ASCII symbol replacements throughout (WoW 3.3.5a font compatibility) · BlacklistCount/FavouriteCount now count unique echoes not raw spellId entries |
-| 4.0 | Build synergy scoring · Stack awareness · Class-specific ELO keys · Per-role UCB1 fix · Run depth multiplier · Favourites system · Toast shows top-3 alternatives · Spell cache · ELO stale data decay · Run history & Stats tab · Hook safety guard · SavedVar pruning · Difficulty presets (Standard/Speedrun/Hardcore) · Export/Import AI data · Tab-based GUI (Advisor/Stats/Settings) |
-| 3.0 | AI learning engine (ELO + EMA + UCB1), confidence blending, visual redesign, overflow fix |
+| 4.5 | Main window enlarged (660x640 to 780x680) · Builds tab layout overlap fixes (Deactivate button and Build Name row no longer collide) |
+| 4.4 | Discovery tab (Novelty Mode, live run echo list) · Builds tab (named priority build lists, +50 score bonus, rank-agnostic groupId matching) · Novelty and build bonuses integrated into auto-select scoring · 5-tab GUI |
+| 4.3 | Banish/Reroll now clicks PerkChoiceN buttons directly (confirmed via frame-stack) rather than guessing API names |
+| 4.2 | Auto-banish/reroll when all choices are blacklisted · Settings: action mode selector (Banish / Reroll / Banish then Reroll) |
+| 4.1 | All-ranks blacklist/favourite (groupId-based) · Spell icons in Blacklist Manager · Deduplicated search results · Hardened IsBlacklisted with legacy save compatibility · ASCII symbol fixes for WoW 3.3.5a font |
+| 4.0 | Full rewrite: build synergy scoring · stack awareness · class-specific ELO · per-role UCB1 · depth scaling · favourites · toast top-3 · spell cache · ELO decay · run history · difficulty presets · export/import · tabbed GUI |
+| 3.0 | AI learning engine (ELO + EMA + UCB1), confidence blending, visual redesign |
 | 2.0 | Auto-select engine, PerkUI hook, toast notifications, blacklist manager |
 | 1.0 | Build Advisor GUI, static scoring, class/role filtering |
 
@@ -221,4 +259,4 @@ At each login, zero-data entries are automatically pruned from `EchoBuddyLearnDB
 
 ## Author
 
-**Nu/Veronica** — built for the Valanior / Project Ebonhold community.
+**Nu/Veronica** — built for the Project Ebonhold community.
