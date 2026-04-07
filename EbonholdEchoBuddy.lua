@@ -41,6 +41,8 @@ local DB_DEFAULTS = {
     difficulty        = "Standard",
     autoBanishReroll  = false,
     blacklistAction   = "banish",   -- "banish" | "reroll" | "banish_reroll"
+    prioritizeNew     = false,
+    noveltyStrength   = "Normal",   -- "Mild" | "Normal" | "Strong"
 }
 
 local CLASS_MASK = {
@@ -85,6 +87,8 @@ local FAMILY_SYNERGY_BONUS   = 8      -- pts per matching family already in buil
 local FAMILY_SYNERGY_CAP     = 3      -- max echoes per family that grant synergy
 local STACK_COMPLETION_BONUS = 20     -- bonus when one pick away from maxStack
 local FAVOURITE_BONUS        = 25     -- flat bonus for starred echoes
+local BUILD_PRIORITY_BONUS   = 50     -- flat bonus for echoes on the active build list
+local NOVELTY_BONUS_VALS     = {Mild=20, Normal=35, Strong=50}  -- per-strength novelty bonus
 local DEPTH_PRIMARY_SCALE    = 0.30   -- primary bonus grows by this factor at max depth
 local DEPTH_SECONDARY_SCALE  = 0.50   -- secondary bonus shrinks by this factor at max depth
 
@@ -138,6 +142,7 @@ local function GetDB()
     if EchoBuddyDB.blacklist  == nil then EchoBuddyDB.blacklist  = {} end
     if EchoBuddyDB.favourites == nil then EchoBuddyDB.favourites = {} end
     if EchoBuddyDB.runHistory == nil then EchoBuddyDB.runHistory = {} end
+    if EchoBuddyDB.builds     == nil then EchoBuddyDB.builds     = {} end
     return EchoBuddyDB
 end
 
@@ -159,6 +164,27 @@ local function GetGroupSpellIds(spellId)
         if p.groupId == gid then table.insert(ids, sid) end
     end
     return ids
+end
+
+-- Returns true if two spellIds represent the same echo (identical or share a groupId).
+-- Used by build priority matching so rank variants are treated as the same echo.
+local function SameGroup(sidA, sidB)
+    if sidA == sidB then return true end
+    local perkDB = ProjectEbonhold and ProjectEbonhold.PerkDatabase
+    if not perkDB then return false end
+    local pA = perkDB[sidA]; local pB = perkDB[sidB]
+    if not pA or not pB then return false end
+    local gA = pA.groupId; local gB = pB.groupId
+    return gA and gA > 0 and gA == gB
+end
+
+-- Returns the active build object, or nil if none is selected.
+local function GetActiveBuild()
+    local db  = GetDB()
+    local idx = db.activeBuildIdx
+    if not idx then return nil end
+    if not db.builds then return nil end
+    return db.builds[idx]
 end
 
 -- Blacklist helpers
@@ -705,6 +731,24 @@ local function DoAutoSelect(choices)
 
             -- Favourite bonus
             if IsFavourite(sid) then score = score + FAVOURITE_BONUS end
+
+            -- Novelty bonus: boost echoes not yet picked this run
+            if db.prioritizeNew then
+                if (currentRunStackCounts[sid] or 0) == 0 then
+                    score = score + (NOVELTY_BONUS_VALS[db.noveltyStrength or "Normal"] or 35)
+                end
+            end
+
+            -- Active build priority bonus
+            local activeBuild = GetActiveBuild()
+            if activeBuild and activeBuild.echoes then
+                for _, bSid in ipairs(activeBuild.echoes) do
+                    if SameGroup(sid, bSid) then
+                        score = score + BUILD_PRIORITY_BONUS
+                        break
+                    end
+                end
+            end
 
             local name = GetCachedSpell(sid).name
             table.insert(scored, {spellId=sid, score=score, name=name, quality=quality})
@@ -1801,8 +1845,8 @@ local function BuildMainFrame()
         activeTabPane = idx
     end
 
-    local tabLabels = {"Advisor", "Stats", "Settings"}
-    local tabW = 196
+    local tabLabels = {"Advisor", "Stats", "Discovery", "Builds", "Settings"}
+    local tabW = 120
     for i, lbl in ipairs(tabLabels) do
         local tbtn = CreateFrame("Button",nil,mainFrame)
         tbtn:SetSize(tabW,30)
@@ -2120,7 +2164,579 @@ local function BuildMainFrame()
     statsPane:SetScript("OnShow", RefreshStatsPane)
 
     ---------------------------------------------------------------------------
-    -- PANE 3: SETTINGS
+    -- PANE 3: DISCOVERY
+    ---------------------------------------------------------------------------
+    local discoveryPane = MakePane()
+    table.insert(tabPanes, discoveryPane)
+
+    local discHeader = discoveryPane:CreateFontString(nil,"OVERLAY","GameFontNormal")
+    discHeader:SetPoint("TOPLEFT",discoveryPane,"TOPLEFT",24,-14)
+    discHeader:SetText("|cffBB88FFNovelty Mode|r")
+
+    local discDesc = discoveryPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    discDesc:SetPoint("TOPLEFT",discoveryPane,"TOPLEFT",24,-34)
+    discDesc:SetPoint("TOPRIGHT",discoveryPane,"TOPRIGHT",-24,-34)
+    discDesc:SetTextColor(0.50,0.45,0.65); discDesc:SetJustifyH("LEFT")
+    discDesc:SetText("Boost echoes you have not yet acquired this run, encouraging a wider variety of picks.")
+
+    local discDiv1 = discoveryPane:CreateTexture(nil,"ARTWORK")
+    discDiv1:SetTexture("Interface\\Buttons\\WHITE8X8")
+    discDiv1:SetPoint("TOPLEFT",discoveryPane,"TOPLEFT",15,-54)
+    discDiv1:SetPoint("TOPRIGHT",discoveryPane,"TOPRIGHT",-15,-54)
+    discDiv1:SetHeight(1); discDiv1:SetVertexColor(0.88,0.72,0.18,0.50)
+
+    local discCB = CreateFrame("CheckButton","EBBNoveltyCheck",discoveryPane,"UICheckButtonTemplate")
+    discCB:SetPoint("TOPLEFT",discoveryPane,"TOPLEFT",24,-58); discCB:SetSize(26,26)
+    _G["EBBNoveltyCheckText"]:SetText("|cffDDDDDDPrioritize echoes not yet in current run|r")
+    discCB:SetChecked(GetDB().prioritizeNew)
+    discCB:SetScript("OnClick",function(self)
+        GetDB().prioritizeNew = self:GetChecked() and true or false
+    end)
+    discCB:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
+        GameTooltip:SetText("Adds a score bonus to echoes you have not yet picked this run.\nEncourages diverse builds.",nil,nil,nil,nil,true)
+        GameTooltip:Show()
+    end)
+    discCB:SetScript("OnLeave",function() GameTooltip:Hide() end)
+
+    local discStrLbl = discoveryPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    discStrLbl:SetPoint("TOPLEFT",discoveryPane,"TOPLEFT",24,-98)
+    discStrLbl:SetTextColor(0.65,0.50,0.90); discStrLbl:SetText("Bonus strength:")
+
+    local NOVELTY_STR_OPTS = {
+        {key="Mild",   label="Mild (+20)"},
+        {key="Normal", label="Normal (+35)"},
+        {key="Strong", label="Strong (+50)"},
+    }
+    local discStrBtns = {}
+    local function RefreshDiscStrBtns()
+        local cur = GetDB().noveltyStrength or "Normal"
+        for _, b in ipairs(discStrBtns) do
+            if b._key == cur then
+                b:SetText("|cffFFD700["..b._label.."]|r")
+            else
+                b:SetText("|cff888877"..b._label.."|r")
+            end
+        end
+    end
+    for i, entry in ipairs(NOVELTY_STR_OPTS) do
+        local btn = CreateFrame("Button",nil,discoveryPane,"GameMenuButtonTemplate")
+        btn:SetSize(110,24)
+        btn:SetPoint("TOPLEFT",discoveryPane,"TOPLEFT",140+(i-1)*116,-96)
+        btn._key = entry.key; btn._label = entry.label
+        btn:SetScript("OnClick",function()
+            GetDB().noveltyStrength = entry.key
+            RefreshDiscStrBtns()
+        end)
+        btn:SetScript("OnEnter",function(self)
+            local vals = {Mild=20, Normal=35, Strong=50}
+            GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
+            GameTooltip:SetText("+"..vals[entry.key].." score for unseen echoes.",nil,nil,nil,nil,true)
+            GameTooltip:Show()
+        end)
+        btn:SetScript("OnLeave",function() GameTooltip:Hide() end)
+        table.insert(discStrBtns, btn)
+    end
+    RefreshDiscStrBtns()
+
+    local discDiv2 = discoveryPane:CreateTexture(nil,"ARTWORK")
+    discDiv2:SetTexture("Interface\\Buttons\\WHITE8X8")
+    discDiv2:SetPoint("TOPLEFT",discoveryPane,"TOPLEFT",15,-130)
+    discDiv2:SetPoint("TOPRIGHT",discoveryPane,"TOPRIGHT",-15,-130)
+    discDiv2:SetHeight(1); discDiv2:SetVertexColor(0.88,0.72,0.18,0.50)
+
+    local discRunLbl = discoveryPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    discRunLbl:SetPoint("TOPLEFT",discoveryPane,"TOPLEFT",24,-140)
+    discRunLbl:SetText("|cffAA8833Current Run Echoes|r  |cff666677(0)|r")
+
+    local discSF = CreateFrame("ScrollFrame","EBBDiscSF",discoveryPane,"UIPanelScrollFrameTemplate")
+    discSF:SetPoint("TOPLEFT",discoveryPane,"TOPLEFT",16,-158)
+    discSF:SetPoint("BOTTOMRIGHT",discoveryPane,"BOTTOMRIGHT",-34,14)
+    local discChild = CreateFrame("Frame","EBBDiscChild",discSF)
+    discChild:SetSize(580,1); discSF:SetScrollChild(discChild)
+
+    local discRows = {}
+    local discEmptyLbl = discChild:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    discEmptyLbl:SetPoint("TOPLEFT",discChild,"TOPLEFT",8,-8)
+    discEmptyLbl:SetTextColor(0.35,0.30,0.50)
+    discEmptyLbl:SetText("No echoes acquired this run yet.")
+    discEmptyLbl:Hide()
+
+    local function RefreshDiscoveryPane()
+        local db = GetDB()
+        discCB:SetChecked(db.prioritizeNew and true or false)
+        RefreshDiscStrBtns()
+
+        -- Deduplicate by groupId and sum stacks
+        local ordered = {}
+        if currentRunEchoes then
+            for _, sid in ipairs(currentRunEchoes) do
+                local found = false
+                for _, entry in ipairs(ordered) do
+                    if SameGroup(entry.spellId, sid) then
+                        entry.stacks = entry.stacks + (currentRunStackCounts[sid] or 1)
+                        found = true; break
+                    end
+                end
+                if not found then
+                    table.insert(ordered, {spellId=sid, stacks=currentRunStackCounts[sid] or 1})
+                end
+            end
+        end
+
+        discRunLbl:SetText("|cffAA8833Current Run Echoes|r  |cff666677("..#ordered..")|r")
+
+        for _, row in ipairs(discRows) do row:Hide() end
+
+        if #ordered == 0 then
+            discEmptyLbl:Show(); discChild:SetHeight(26); return
+        end
+        discEmptyLbl:Hide()
+
+        for i, entry in ipairs(ordered) do
+            if not discRows[i] then
+                local r = CreateFrame("Frame",nil,discChild)
+                r:SetHeight(26)
+                r:SetPoint("TOPLEFT",discChild,"TOPLEFT",0,-(i-1)*26)
+                r:SetPoint("TOPRIGHT",discChild,"TOPRIGHT",0,-(i-1)*26)
+                local bg = r:CreateTexture(nil,"BACKGROUND")
+                bg:SetAllPoints(); bg:SetTexture("Interface\\Buttons\\WHITE8X8")
+                bg:SetVertexColor(0.06,0.04,0.18); bg:SetAlpha(i%2==0 and 0.45 or 0)
+                local ic = r:CreateTexture(nil,"ARTWORK")
+                ic:SetSize(20,20); ic:SetPoint("LEFT",r,"LEFT",4,0)
+                ic:SetTexCoord(0.08,0.92,0.08,0.92); r._icon = ic
+                local lb = r:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+                lb:SetPoint("LEFT",r,"LEFT",28,0); lb:SetPoint("RIGHT",r,"RIGHT",-4,0)
+                lb:SetJustifyH("LEFT"); r._lbl = lb
+                discRows[i] = r
+            end
+            local r = discRows[i]
+            r:SetPoint("TOPLEFT",discChild,"TOPLEFT",0,-(i-1)*26)
+            local info = GetCachedSpell(entry.spellId)
+            r._icon:SetTexture(info.icon)
+            local stackStr = entry.stacks > 1 and ("  |cffAAAAAA(x"..entry.stacks..")|r") or ""
+            r._lbl:SetText(info.name..stackStr)
+            r:Show()
+        end
+        discChild:SetHeight(math.max(#ordered*26, 26))
+    end
+
+    discoveryPane:SetScript("OnShow", RefreshDiscoveryPane)
+
+    ---------------------------------------------------------------------------
+    -- PANE 4: BUILDS
+    ---------------------------------------------------------------------------
+    local buildsPane = MakePane()
+    table.insert(tabPanes, buildsPane)
+
+    local selectedBuildIdx = nil   -- index of build currently loaded into the editor
+
+    -- ── LEFT COLUMN (x=14..229) ────────────────────────────────────────────
+
+    local activeBuildLbl = buildsPane:CreateFontString(nil,"OVERLAY","GameFontNormal")
+    activeBuildLbl:SetPoint("TOPLEFT",buildsPane,"TOPLEFT",14,-14)
+    activeBuildLbl:SetText("|cffBB88FFActive Build:|r  |cff666677None|r")
+
+    local deactivateBtn = CreateFrame("Button","EBBDeactivateBtn",buildsPane,"GameMenuButtonTemplate")
+    deactivateBtn:SetSize(90,22); deactivateBtn:SetPoint("TOPLEFT",buildsPane,"TOPLEFT",200,-12)
+    deactivateBtn:SetText("Deactivate")
+    deactivateBtn:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
+        GameTooltip:SetText("Stop using any build priority list.",nil,nil,nil,nil,true)
+        GameTooltip:Show()
+    end)
+    deactivateBtn:SetScript("OnLeave",function() GameTooltip:Hide() end)
+
+    local newBuildBtn = CreateFrame("Button","EBBNewBuildBtn",buildsPane,"GameMenuButtonTemplate")
+    newBuildBtn:SetSize(207,24); newBuildBtn:SetPoint("TOPLEFT",buildsPane,"TOPLEFT",14,-42)
+    newBuildBtn:SetText("|cff44FF44+ New Build|r")
+    newBuildBtn:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
+        GameTooltip:SetText("Create a new empty build priority list. (Max 20)",nil,nil,nil,nil,true)
+        GameTooltip:Show()
+    end)
+    newBuildBtn:SetScript("OnLeave",function() GameTooltip:Hide() end)
+
+    -- Vertical divider
+    local colDiv = buildsPane:CreateTexture(nil,"ARTWORK")
+    colDiv:SetTexture("Interface\\Buttons\\WHITE8X8")
+    colDiv:SetPoint("TOPLEFT",buildsPane,"TOPLEFT",235,-8)
+    colDiv:SetPoint("BOTTOMLEFT",buildsPane,"BOTTOMLEFT",235,8)
+    colDiv:SetWidth(1); colDiv:SetVertexColor(0.38,0.26,0.62,0.50)
+
+    local buildListSF = CreateFrame("ScrollFrame","EBBBuildListSF",buildsPane,"UIPanelScrollFrameTemplate")
+    buildListSF:SetPoint("TOPLEFT",buildsPane,"TOPLEFT",14,-72)
+    buildListSF:SetPoint("BOTTOMLEFT",buildsPane,"BOTTOMLEFT",14,14)
+    buildListSF:SetWidth(207)
+    local buildListChild = CreateFrame("Frame","EBBBuildListChild",buildListSF)
+    buildListChild:SetSize(187,1); buildListSF:SetScrollChild(buildListChild)
+
+    local buildListRows = {}
+    local buildListEmptyLbl = buildListChild:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    buildListEmptyLbl:SetPoint("TOPLEFT",buildListChild,"TOPLEFT",4,-8)
+    buildListEmptyLbl:SetTextColor(0.35,0.30,0.50)
+    buildListEmptyLbl:SetText("No builds yet.")
+    buildListEmptyLbl:Hide()
+
+    -- ── RIGHT COLUMN (x=247..646) ──────────────────────────────────────────
+
+    local editorPlaceholder = buildsPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    editorPlaceholder:SetPoint("CENTER",buildsPane,"CENTER",120,-30)
+    editorPlaceholder:SetTextColor(0.35,0.30,0.50)
+    editorPlaceholder:SetText("Select a build from the list,\nor create a new one.")
+
+    local editorPane = CreateFrame("Frame","EBBBuildEditorPane",buildsPane)
+    editorPane:SetPoint("TOPLEFT",buildsPane,"TOPLEFT",247,-6)
+    editorPane:SetPoint("BOTTOMRIGHT",buildsPane,"BOTTOMRIGHT",-14,14)
+    editorPane:Hide()
+
+    -- Name row
+    local bNameLbl = editorPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    bNameLbl:SetPoint("TOPLEFT",editorPane,"TOPLEFT",0,-4)
+    bNameLbl:SetTextColor(0.65,0.50,0.90); bNameLbl:SetText("Build Name:")
+
+    local bNameBox = CreateFrame("EditBox","EBBBuildNameBox",editorPane,"InputBoxTemplate")
+    bNameBox:SetSize(220,20); bNameBox:SetPoint("LEFT",bNameLbl,"RIGHT",8,0)
+    bNameBox:SetAutoFocus(false); bNameBox:SetMaxLetters(40)
+    bNameBox:SetScript("OnEnterPressed",function(self) self:ClearFocus() end)
+    bNameBox:SetScript("OnEscapePressed",function(self) self:ClearFocus() end)
+
+    local bSaveNameBtn = CreateFrame("Button","EBBSaveNameBtn",editorPane,"GameMenuButtonTemplate")
+    bSaveNameBtn:SetSize(80,22); bSaveNameBtn:SetPoint("LEFT",bNameBox,"RIGHT",6,0)
+    bSaveNameBtn:SetText("Save Name")
+    bSaveNameBtn:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
+        GameTooltip:SetText("Save the current build name.",nil,nil,nil,nil,true)
+        GameTooltip:Show()
+    end)
+    bSaveNameBtn:SetScript("OnLeave",function() GameTooltip:Hide() end)
+
+    -- Divider
+    local edDiv1 = editorPane:CreateTexture(nil,"ARTWORK")
+    edDiv1:SetTexture("Interface\\Buttons\\WHITE8X8")
+    edDiv1:SetPoint("TOPLEFT",editorPane,"TOPLEFT",0,-28)
+    edDiv1:SetPoint("TOPRIGHT",editorPane,"TOPRIGHT",0,-28)
+    edDiv1:SetHeight(1); edDiv1:SetVertexColor(0.88,0.72,0.18,0.50)
+
+    -- Echo search row
+    local bSrchLbl = editorPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    bSrchLbl:SetPoint("TOPLEFT",editorPane,"TOPLEFT",0,-42)
+    bSrchLbl:SetTextColor(0.65,0.50,0.90); bSrchLbl:SetText("Add Echo:")
+
+    local bSrchBox = CreateFrame("EditBox","EBBBuildSrchBox",editorPane,"InputBoxTemplate")
+    bSrchBox:SetSize(210,20); bSrchBox:SetPoint("LEFT",bSrchLbl,"RIGHT",8,-2)
+    bSrchBox:SetAutoFocus(false); bSrchBox:SetMaxLetters(60)
+
+    -- Search results (up to 6 rows, each 22px, starting at y=-66)
+    local MAX_BSRCH = 6
+    local bSrchRows = {}
+    for i = 1, MAX_BSRCH do
+        local r = CreateFrame("Button",nil,editorPane)
+        r:SetHeight(22)
+        r:SetPoint("TOPLEFT",editorPane,"TOPLEFT",0,-64-(i-1)*22)
+        r:SetPoint("TOPRIGHT",editorPane,"TOPRIGHT",0,-64-(i-1)*22)
+        r:EnableMouse(true)
+        local hl = r:CreateTexture(nil,"HIGHLIGHT")
+        hl:SetAllPoints(); hl:SetTexture("Interface\\Buttons\\WHITE8X8")
+        hl:SetVertexColor(1,1,1,0.08)
+        local ic = r:CreateTexture(nil,"ARTWORK")
+        ic:SetSize(18,18); ic:SetPoint("LEFT",r,"LEFT",2,0)
+        ic:SetTexCoord(0.08,0.92,0.08,0.92); r._icon = ic
+        local lb = r:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+        lb:SetPoint("LEFT",r,"LEFT",24,0); lb:SetPoint("RIGHT",r,"RIGHT",-4,0)
+        lb:SetJustifyH("LEFT"); r._lbl = lb
+        r._spellId = nil; r:Hide()
+        bSrchRows[i] = r
+    end
+
+    -- Divider below search results area (fixed y: -64 - 6*22 - 8 = -204)
+    local PRIO_DIV_Y = -204
+    local edDiv2 = editorPane:CreateTexture(nil,"ARTWORK")
+    edDiv2:SetTexture("Interface\\Buttons\\WHITE8X8")
+    edDiv2:SetPoint("TOPLEFT",editorPane,"TOPLEFT",0,PRIO_DIV_Y)
+    edDiv2:SetPoint("TOPRIGHT",editorPane,"TOPRIGHT",0,PRIO_DIV_Y)
+    edDiv2:SetHeight(1); edDiv2:SetVertexColor(0.88,0.72,0.18,0.50)
+
+    local prioLbl = editorPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    prioLbl:SetPoint("TOPLEFT",editorPane,"TOPLEFT",0,PRIO_DIV_Y-8)
+    prioLbl:SetTextColor(0.65,0.50,0.90); prioLbl:SetText("Priority List  (0 echoes):")
+
+    local prioSF = CreateFrame("ScrollFrame","EBBPrioSF",editorPane,"UIPanelScrollFrameTemplate")
+    prioSF:SetPoint("TOPLEFT",editorPane,"TOPLEFT",0,PRIO_DIV_Y-26)
+    prioSF:SetPoint("BOTTOMRIGHT",editorPane,"BOTTOMRIGHT",-20,30)
+    local prioChild = CreateFrame("Frame","EBBPrioChild",prioSF)
+    prioChild:SetSize(360,1); prioSF:SetScrollChild(prioChild)
+
+    local prioRows = {}
+    local prioEmptyLbl = prioChild:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    prioEmptyLbl:SetPoint("TOPLEFT",prioChild,"TOPLEFT",4,-8)
+    prioEmptyLbl:SetTextColor(0.35,0.30,0.50)
+    prioEmptyLbl:SetText("No echoes in this build yet. Search above to add some.")
+    prioEmptyLbl:Hide()
+
+    local bDeleteBtn = CreateFrame("Button","EBBDeleteBuildBtn",editorPane,"GameMenuButtonTemplate")
+    bDeleteBtn:SetSize(110,22); bDeleteBtn:SetPoint("BOTTOMLEFT",editorPane,"BOTTOMLEFT",0,0)
+    bDeleteBtn:SetText("|cffFF4444Delete Build|r")
+    bDeleteBtn:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_TOP")
+        GameTooltip:SetText("Permanently delete this build.",nil,nil,nil,nil,true)
+        GameTooltip:Show()
+    end)
+    bDeleteBtn:SetScript("OnLeave",function() GameTooltip:Hide() end)
+
+    -- ── HELPER FUNCTIONS ──────────────────────────────────────────────────
+
+    local RefreshBuildList, LoadBuildEditor, RefreshPrioList, RefreshBuildSearch
+
+    local function RefreshActiveBuildLbl()
+        local build = GetActiveBuild()
+        if build then
+            activeBuildLbl:SetText("|cffBB88FFActive Build:|r  |cffFFD700"..(build.name or "Unnamed").."|r")
+        else
+            activeBuildLbl:SetText("|cffBB88FFActive Build:|r  |cff666677None|r")
+        end
+    end
+
+    local function GetPrioRow(idx)
+        if not prioRows[idx] then
+            local r = CreateFrame("Frame",nil,prioChild)
+            r:SetHeight(26)
+            r:SetPoint("TOPLEFT",prioChild,"TOPLEFT",0,-(idx-1)*26)
+            r:SetPoint("TOPRIGHT",prioChild,"TOPRIGHT",0,-(idx-1)*26)
+            local bg = r:CreateTexture(nil,"BACKGROUND")
+            bg:SetAllPoints(); bg:SetTexture("Interface\\Buttons\\WHITE8X8")
+            bg:SetVertexColor(0.06,0.04,0.18); bg:SetAlpha(idx%2==0 and 0.45 or 0)
+            local ic = r:CreateTexture(nil,"ARTWORK")
+            ic:SetSize(18,18); ic:SetPoint("LEFT",r,"LEFT",2,0)
+            ic:SetTexCoord(0.08,0.92,0.08,0.92); r._icon = ic
+            local lb = r:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+            lb:SetPoint("LEFT",r,"LEFT",24,0); lb:SetWidth(240); lb:SetJustifyH("LEFT")
+            r._lbl = lb
+            local removeBtn = CreateFrame("Button",nil,r,"GameMenuButtonTemplate")
+            removeBtn:SetSize(60,20); removeBtn:SetPoint("RIGHT",r,"RIGHT",-2,0)
+            removeBtn:SetText("Remove"); r._removeBtn = removeBtn
+            prioRows[idx] = r
+        end
+        return prioRows[idx]
+    end
+
+    RefreshPrioList = function()
+        for _, r in ipairs(prioRows) do r:Hide() end
+        if not selectedBuildIdx then return end
+        local db = GetDB()
+        local build = db.builds and db.builds[selectedBuildIdx]
+        if not build then return end
+        local echoes = build.echoes or {}
+        prioLbl:SetText("Priority List  ("..#echoes.." echoes):")
+        if #echoes == 0 then
+            prioEmptyLbl:Show(); prioChild:SetHeight(26); return
+        end
+        prioEmptyLbl:Hide()
+        for i, sid in ipairs(echoes) do
+            local r = GetPrioRow(i)
+            local info = GetCachedSpell(sid)
+            r._icon:SetTexture(info.icon); r._lbl:SetText(info.name)
+            do
+                local ci = i
+                r._removeBtn:SetScript("OnClick",function()
+                    local db2 = GetDB()
+                    local b2  = db2.builds and db2.builds[selectedBuildIdx]
+                    if b2 then table.remove(b2.echoes, ci); RefreshPrioList() end
+                end)
+            end
+            r:Show()
+        end
+        prioChild:SetHeight(math.max(#echoes*26, 26))
+    end
+
+    RefreshBuildSearch = function(query)
+        for i = 1, MAX_BSRCH do bSrchRows[i]:Hide() end
+        if not query or #query < 2 then return end
+        local results = SearchEchoes(query)
+        local shown = math.min(#results, MAX_BSRCH)
+        for i = 1, shown do
+            local e   = results[i]
+            local r   = bSrchRows[i]
+            local info = GetCachedSpell(e.spellId)
+            r._icon:SetTexture(info.icon)
+            local qc  = QUALITY_COLOR[e.quality] or {1,1,1}
+            local hex = string.format("%02x%02x%02x",
+                math.floor(qc[1]*255), math.floor(qc[2]*255), math.floor(qc[3]*255))
+            r._lbl:SetText("|cff"..hex..e.name.."|r  |cff444455(click to add)|r")
+            r._spellId = e.spellId
+            do
+                local cSid = e.spellId
+                r:SetScript("OnClick",function()
+                    if not selectedBuildIdx then return end
+                    local db2 = GetDB()
+                    local b   = db2.builds and db2.builds[selectedBuildIdx]
+                    if not b then return end
+                    for _, ex in ipairs(b.echoes) do
+                        if SameGroup(ex, cSid) then return end  -- already present
+                    end
+                    table.insert(b.echoes, cSid)
+                    RefreshPrioList()
+                    bSrchBox:SetText("")
+                    for j = 1, MAX_BSRCH do bSrchRows[j]:Hide() end
+                end)
+            end
+            r:Show()
+        end
+    end
+
+    local function GetBuildListRow(idx)
+        if not buildListRows[idx] then
+            local r = CreateFrame("Frame",nil,buildListChild)
+            r:SetHeight(28)
+            r:SetPoint("TOPLEFT",buildListChild,"TOPLEFT",0,-(idx-1)*28)
+            r:SetPoint("TOPRIGHT",buildListChild,"TOPRIGHT",0,-(idx-1)*28)
+            r:EnableMouse(true)
+            local bg = r:CreateTexture(nil,"BACKGROUND")
+            bg:SetAllPoints(); bg:SetTexture("Interface\\Buttons\\WHITE8X8")
+            bg:SetVertexColor(0.10,0.06,0.28); bg:SetAlpha(idx%2==0 and 0.45 or 0)
+            local nLbl = r:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+            nLbl:SetPoint("LEFT",r,"LEFT",4,0); nLbl:SetWidth(90); nLbl:SetJustifyH("LEFT")
+            r._nameLbl = nLbl
+            local setBtn = CreateFrame("Button",nil,r,"GameMenuButtonTemplate")
+            setBtn:SetSize(44,20); setBtn:SetPoint("LEFT",r,"LEFT",98,0)
+            setBtn:SetText("Set"); r._setBtn = setBtn
+            local delBtn = CreateFrame("Button",nil,r,"GameMenuButtonTemplate")
+            delBtn:SetSize(24,20); delBtn:SetPoint("LEFT",setBtn,"RIGHT",4,0)
+            delBtn:SetText("X"); r._delBtn = delBtn
+            buildListRows[idx] = r
+        end
+        return buildListRows[idx]
+    end
+
+    RefreshBuildList = function()
+        for _, r in ipairs(buildListRows) do r:Hide() end
+        local db = GetDB()
+        if not db.builds or #db.builds == 0 then
+            buildListEmptyLbl:Show(); buildListChild:SetHeight(30); return
+        end
+        buildListEmptyLbl:Hide()
+        for i, build in ipairs(db.builds) do
+            local r = GetBuildListRow(i)
+            r._nameLbl:SetText(build.name or "Unnamed")
+            if db.activeBuildIdx == i then
+                r._setBtn:SetText("|cffFFD700[ON]|r")
+            else
+                r._setBtn:SetText("Set")
+            end
+            do
+                local ci = i
+                r._setBtn:SetScript("OnClick",function()
+                    GetDB().activeBuildIdx = ci
+                    RefreshActiveBuildLbl(); RefreshBuildList()
+                end)
+                r:SetScript("OnMouseDown",function()
+                    LoadBuildEditor(ci)
+                end)
+                r._delBtn:SetScript("OnClick",function()
+                    local db2 = GetDB()
+                    local bld = db2.builds and db2.builds[ci]
+                    if not bld then return end
+                    ShowConfirm("Delete build \""..( bld.name or "Unnamed").."\"?",function()
+                        local db3 = GetDB()
+                        if not db3.builds then return end
+                        table.remove(db3.builds, ci)
+                        if db3.activeBuildIdx then
+                            if db3.activeBuildIdx == ci then
+                                db3.activeBuildIdx = nil
+                            elseif db3.activeBuildIdx > ci then
+                                db3.activeBuildIdx = db3.activeBuildIdx - 1
+                            end
+                        end
+                        if selectedBuildIdx == ci then
+                            selectedBuildIdx = nil
+                            editorPane:Hide(); editorPlaceholder:Show()
+                        elseif selectedBuildIdx and selectedBuildIdx > ci then
+                            selectedBuildIdx = selectedBuildIdx - 1
+                        end
+                        RefreshActiveBuildLbl(); RefreshBuildList()
+                    end)
+                end)
+            end
+            r:Show()
+        end
+        buildListChild:SetHeight(math.max(#db.builds*28, 28))
+    end
+
+    LoadBuildEditor = function(idx)
+        local db = GetDB()
+        local build = db.builds and db.builds[idx]
+        if not build then return end
+        selectedBuildIdx = idx
+        bNameBox:SetText(build.name or "")
+        bSrchBox:SetText("")
+        for i = 1, MAX_BSRCH do bSrchRows[i]:Hide() end
+        editorPlaceholder:Hide(); editorPane:Show()
+        RefreshPrioList()
+    end
+
+    -- ── WIRE UP DEFERRED SCRIPTS ──────────────────────────────────────────
+
+    deactivateBtn:SetScript("OnClick",function()
+        GetDB().activeBuildIdx = nil
+        RefreshActiveBuildLbl(); RefreshBuildList()
+    end)
+
+    newBuildBtn:SetScript("OnClick",function()
+        local db = GetDB()
+        if #db.builds >= 20 then
+            print("|cffFF4444[Echo Buddy]|r Cannot create more than 20 builds.")
+            return
+        end
+        table.insert(db.builds, {name="New Build "..(#db.builds+1), echoes={}})
+        RefreshBuildList()
+        LoadBuildEditor(#db.builds)
+    end)
+
+    bSaveNameBtn:SetScript("OnClick",function()
+        if not selectedBuildIdx then return end
+        local db = GetDB()
+        local build = db.builds and db.builds[selectedBuildIdx]
+        if not build then return end
+        build.name = bNameBox:GetText()
+        RefreshActiveBuildLbl(); RefreshBuildList()
+    end)
+
+    bSrchBox:SetScript("OnTextChanged",function(self)
+        local t = self:GetText()
+        if #t >= 2 then RefreshBuildSearch(t)
+        else for i=1,MAX_BSRCH do bSrchRows[i]:Hide() end end
+    end)
+    bSrchBox:SetScript("OnEscapePressed",function(self)
+        self:SetText(""); self:ClearFocus()
+        for i=1,MAX_BSRCH do bSrchRows[i]:Hide() end
+    end)
+
+    bDeleteBtn:SetScript("OnClick",function()
+        if not selectedBuildIdx then return end
+        local db = GetDB()
+        local build = db.builds and db.builds[selectedBuildIdx]
+        if not build then return end
+        ShowConfirm("Delete build \""..(build.name or "Unnamed").."\"?",function()
+            local db2 = GetDB()
+            if not db2.builds then return end
+            local ri = selectedBuildIdx
+            table.remove(db2.builds, ri)
+            if db2.activeBuildIdx then
+                if db2.activeBuildIdx == ri then db2.activeBuildIdx = nil
+                elseif db2.activeBuildIdx > ri then db2.activeBuildIdx = db2.activeBuildIdx - 1 end
+            end
+            selectedBuildIdx = nil
+            editorPane:Hide(); editorPlaceholder:Show()
+            RefreshActiveBuildLbl(); RefreshBuildList()
+        end)
+    end)
+
+    buildsPane:SetScript("OnShow",function()
+        RefreshActiveBuildLbl(); RefreshBuildList()
+    end)
+
+    ---------------------------------------------------------------------------
+    -- PANE 5: SETTINGS
     ---------------------------------------------------------------------------
     local settingsPane = MakePane()
     table.insert(tabPanes, settingsPane)

@@ -1,3 +1,24 @@
+## [4.4] - 2026-04-07
+
+### Added
+- **Discovery tab** — "Novelty Mode" prioritises echoes not yet acquired in the current run
+  - Checkbox toggle: "Prioritize echoes not yet in current run"
+  - Three bonus strength presets: Mild (+20), Normal (+35), Strong (+50)
+  - Live "Current Run Echoes" scroll list showing every echo acquired so far with stack counts
+  - Deduplicates by groupId so multi-rank echoes appear as one entry
+- **Builds tab** — users can create named priority build lists
+  - Left column: scrollable list of saved builds; [Set]/[ON] to activate, [X] to delete
+  - Right column: build editor — name input, echo search (type 2+ chars), up to 6 instant search results (click to add), scrollable priority list with per-echo Remove button, Delete Build button
+  - Active build name shown at top; [Deactivate] to clear
+  - Cap of 20 saved builds
+  - Builds persist via `EchoBuddyDB.builds` SavedVariable
+- Auto-select scoring now applies **novelty bonus** to echoes not yet in `currentRunStackCounts`
+- Auto-select scoring now applies **+50 build priority bonus** to echoes matching the active build list (groupId-aware via `SameGroup`)
+- `SameGroup(sidA, sidB)` helper — true if both spellIds are identical or share a groupId
+- `GetActiveBuild()` helper — returns `db.builds[db.activeBuildIdx]` or nil
+- Two new DB keys: `prioritizeNew` (boolean), `noveltyStrength` ("Mild"/"Normal"/"Strong")
+- Tab bar now shows 5 tabs (Advisor | Stats | Discovery | Builds | Settings), each 120px wide
+
 ## [4.3] - 2026-04-06
 
 ### Fixed
