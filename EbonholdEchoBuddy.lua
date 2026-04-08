@@ -187,6 +187,19 @@ local function GetActiveBuild()
     return db.builds[idx]
 end
 
+-- Returns true if spellId is excluded by the active build's per-build blacklist.
+-- Checks direct spellId first, then all group members for rank-agnostic coverage.
+local function IsBuildBlacklisted(spellId)
+    local build = GetActiveBuild()
+    if not build or not build.buildBlacklist then return false end
+    local bl = build.buildBlacklist
+    if bl[spellId] == true then return true end
+    for _, sid in ipairs(GetGroupSpellIds(spellId)) do
+        if bl[sid] == true then return true end
+    end
+    return false
+end
+
 -- Blacklist helpers
 local function IsBlacklisted(spellId)
     -- Check the direct entry first (fast path), then scan the whole group
@@ -706,7 +719,7 @@ local function DoAutoSelect(choices)
     local scored = {}
     for _, choice in ipairs(choices) do
         local sid   = choice.spellId
-        if not IsBlacklisted(sid) then
+        if not IsBlacklisted(sid) and not IsBuildBlacklisted(sid) then
             local perk    = perkDB and perkDB[sid]
             local quality = choice.quality or (perk and perk.quality) or 0
             local score   = BlendedScore(sid, quality, config, classRole, depth, diffPreset)
@@ -2330,6 +2343,7 @@ local function BuildMainFrame()
     table.insert(tabPanes, buildsPane)
 
     local selectedBuildIdx = nil   -- index of build currently loaded into the editor
+    local buildAddMode     = "priority"  -- "priority" | "blacklist" — where search results are added
 
     -- ── LEFT COLUMN (x=14..229) ────────────────────────────────────────────
 
@@ -2424,8 +2438,44 @@ local function BuildMainFrame()
     bSrchLbl:SetTextColor(0.65,0.50,0.90); bSrchLbl:SetText("Add Echo:")
 
     local bSrchBox = CreateFrame("EditBox","EBBBuildSrchBox",editorPane,"InputBoxTemplate")
-    bSrchBox:SetSize(210,20); bSrchBox:SetPoint("LEFT",bSrchLbl,"RIGHT",8,-2)
+    bSrchBox:SetSize(180,20); bSrchBox:SetPoint("LEFT",bSrchLbl,"RIGHT",8,-2)
     bSrchBox:SetAutoFocus(false); bSrchBox:SetMaxLetters(60)
+
+    -- Mode toggle buttons: choose whether search adds to Priority list or Build Blacklist
+    local bModePrioBtn = CreateFrame("Button","EBBModePrioBtn",editorPane,"GameMenuButtonTemplate")
+    bModePrioBtn:SetSize(75,20); bModePrioBtn:SetPoint("LEFT",bSrchBox,"RIGHT",6,0)
+
+    local bModeBlBtn = CreateFrame("Button","EBBModeBlBtn",editorPane,"GameMenuButtonTemplate")
+    bModeBlBtn:SetSize(75,20); bModeBlBtn:SetPoint("LEFT",bModePrioBtn,"RIGHT",4,0)
+
+    local function RefreshModeBtns()
+        if buildAddMode == "priority" then
+            bModePrioBtn:SetText("|cffFFD700[Priority]|r")
+            bModeBlBtn:SetText("|cff888877Blacklist|r")
+        else
+            bModePrioBtn:SetText("|cff888877Priority|r")
+            bModeBlBtn:SetText("|cffFF6666[Blacklist]|r")
+        end
+    end
+    bModePrioBtn:SetScript("OnClick",function()
+        buildAddMode = "priority"; RefreshModeBtns()
+    end)
+    bModeBlBtn:SetScript("OnClick",function()
+        buildAddMode = "blacklist"; RefreshModeBtns()
+    end)
+    bModePrioBtn:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
+        GameTooltip:SetText("Click search results to add echoes to the Priority List.",nil,nil,nil,nil,true)
+        GameTooltip:Show()
+    end)
+    bModePrioBtn:SetScript("OnLeave",function() GameTooltip:Hide() end)
+    bModeBlBtn:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
+        GameTooltip:SetText("Click search results to add echoes to this build's Blacklist.\nBlacklisted echoes are excluded only when this build is active.",nil,nil,nil,nil,true)
+        GameTooltip:Show()
+    end)
+    bModeBlBtn:SetScript("OnLeave",function() GameTooltip:Hide() end)
+    RefreshModeBtns()
 
     -- Search results (up to 6 rows, each 22px, starting at y=-66)
     local MAX_BSRCH = 6
@@ -2457,22 +2507,52 @@ local function BuildMainFrame()
     edDiv2:SetPoint("TOPRIGHT",editorPane,"TOPRIGHT",0,PRIO_DIV_Y)
     edDiv2:SetHeight(1); edDiv2:SetVertexColor(0.88,0.72,0.18,0.50)
 
+    -- ── LOWER SECTION: two side-by-side lists ─────────────────────────────
+    -- Left half: Priority List  |  Right half: Build Blacklist
+    -- Split x = 242 (mid-divider), right column starts at x=248
+
     local prioLbl = editorPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
     prioLbl:SetPoint("TOPLEFT",editorPane,"TOPLEFT",0,PRIO_DIV_Y-8)
     prioLbl:SetTextColor(0.65,0.50,0.90); prioLbl:SetText("Priority List  (0 echoes):")
 
     local prioSF = CreateFrame("ScrollFrame","EBBPrioSF",editorPane,"UIPanelScrollFrameTemplate")
     prioSF:SetPoint("TOPLEFT",editorPane,"TOPLEFT",0,PRIO_DIV_Y-26)
-    prioSF:SetPoint("BOTTOMRIGHT",editorPane,"BOTTOMRIGHT",-20,30)
+    prioSF:SetPoint("BOTTOMLEFT",editorPane,"BOTTOMLEFT",0,30)
+    prioSF:SetWidth(228)
     local prioChild = CreateFrame("Frame","EBBPrioChild",prioSF)
-    prioChild:SetSize(360,1); prioSF:SetScrollChild(prioChild)
+    prioChild:SetSize(192,1); prioSF:SetScrollChild(prioChild)
 
     local prioRows = {}
     local prioEmptyLbl = prioChild:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
     prioEmptyLbl:SetPoint("TOPLEFT",prioChild,"TOPLEFT",4,-8)
     prioEmptyLbl:SetTextColor(0.35,0.30,0.50)
-    prioEmptyLbl:SetText("No echoes in this build yet. Search above to add some.")
+    prioEmptyLbl:SetText("No echoes in this build\nyet. Search above to add.")
     prioEmptyLbl:Hide()
+
+    -- Vertical mid-divider between the two lists
+    local midDiv = editorPane:CreateTexture(nil,"ARTWORK")
+    midDiv:SetTexture("Interface\\Buttons\\WHITE8X8")
+    midDiv:SetPoint("TOPLEFT",editorPane,"TOPLEFT",242,PRIO_DIV_Y-4)
+    midDiv:SetPoint("BOTTOMLEFT",editorPane,"BOTTOMLEFT",242,30)
+    midDiv:SetWidth(1); midDiv:SetVertexColor(0.38,0.26,0.62,0.45)
+
+    -- Build Blacklist (right half)
+    local bBlLbl = editorPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    bBlLbl:SetPoint("TOPLEFT",editorPane,"TOPLEFT",248,PRIO_DIV_Y-8)
+    bBlLbl:SetTextColor(0.90,0.40,0.40); bBlLbl:SetText("Build Blacklist  (0 echoes):")
+
+    local bBlSF = CreateFrame("ScrollFrame","EBBBuildBlSF",editorPane,"UIPanelScrollFrameTemplate")
+    bBlSF:SetPoint("TOPLEFT",editorPane,"TOPLEFT",248,PRIO_DIV_Y-26)
+    bBlSF:SetPoint("BOTTOMRIGHT",editorPane,"BOTTOMRIGHT",-20,30)
+    local bBlChild = CreateFrame("Frame","EBBBuildBlChild",bBlSF)
+    bBlChild:SetSize(192,1); bBlSF:SetScrollChild(bBlChild)
+
+    local bBlRows = {}
+    local bBlEmptyLbl = bBlChild:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    bBlEmptyLbl:SetPoint("TOPLEFT",bBlChild,"TOPLEFT",4,-8)
+    bBlEmptyLbl:SetTextColor(0.35,0.30,0.50)
+    bBlEmptyLbl:SetText("No echoes blacklisted for\nthis build yet.")
+    bBlEmptyLbl:Hide()
 
     local bDeleteBtn = CreateFrame("Button","EBBDeleteBuildBtn",editorPane,"GameMenuButtonTemplate")
     bDeleteBtn:SetSize(110,22); bDeleteBtn:SetPoint("BOTTOMLEFT",editorPane,"BOTTOMLEFT",0,0)
@@ -2486,7 +2566,7 @@ local function BuildMainFrame()
 
     -- ── HELPER FUNCTIONS ──────────────────────────────────────────────────
 
-    local RefreshBuildList, LoadBuildEditor, RefreshPrioList, RefreshBuildSearch
+    local RefreshBuildList, LoadBuildEditor, RefreshPrioList, RefreshBuildSearch, RefreshBuildBlacklist
 
     local function RefreshActiveBuildLbl()
         local build = GetActiveBuild()
@@ -2510,7 +2590,7 @@ local function BuildMainFrame()
             ic:SetSize(18,18); ic:SetPoint("LEFT",r,"LEFT",2,0)
             ic:SetTexCoord(0.08,0.92,0.08,0.92); r._icon = ic
             local lb = r:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-            lb:SetPoint("LEFT",r,"LEFT",24,0); lb:SetWidth(240); lb:SetJustifyH("LEFT")
+            lb:SetPoint("LEFT",r,"LEFT",24,0); lb:SetWidth(100); lb:SetJustifyH("LEFT")
             r._lbl = lb
             local removeBtn = CreateFrame("Button",nil,r,"GameMenuButtonTemplate")
             removeBtn:SetSize(60,20); removeBtn:SetPoint("RIGHT",r,"RIGHT",-2,0)
@@ -2549,6 +2629,73 @@ local function BuildMainFrame()
         prioChild:SetHeight(math.max(#echoes*26, 26))
     end
 
+    local function GetBBlRow(idx)
+        if not bBlRows[idx] then
+            local r = CreateFrame("Frame",nil,bBlChild)
+            r:SetHeight(26)
+            r:SetPoint("TOPLEFT",bBlChild,"TOPLEFT",0,-(idx-1)*26)
+            r:SetPoint("TOPRIGHT",bBlChild,"TOPRIGHT",0,-(idx-1)*26)
+            local bg = r:CreateTexture(nil,"BACKGROUND")
+            bg:SetAllPoints(); bg:SetTexture("Interface\\Buttons\\WHITE8X8")
+            bg:SetVertexColor(0.28,0.04,0.04); bg:SetAlpha(idx%2==0 and 0.60 or 0.30)
+            local ic = r:CreateTexture(nil,"ARTWORK")
+            ic:SetSize(18,18); ic:SetPoint("LEFT",r,"LEFT",2,0)
+            ic:SetTexCoord(0.08,0.92,0.08,0.92); r._icon = ic
+            local lb = r:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+            lb:SetPoint("LEFT",r,"LEFT",24,0); lb:SetWidth(100); lb:SetJustifyH("LEFT")
+            r._lbl = lb
+            local removeBtn = CreateFrame("Button",nil,r,"GameMenuButtonTemplate")
+            removeBtn:SetSize(52,20); removeBtn:SetPoint("RIGHT",r,"RIGHT",-2,0)
+            removeBtn:SetText("Remove"); r._removeBtn = removeBtn
+            bBlRows[idx] = r
+        end
+        return bBlRows[idx]
+    end
+
+    RefreshBuildBlacklist = function()
+        for _, r in ipairs(bBlRows) do r:Hide() end
+        if not selectedBuildIdx then return end
+        local db = GetDB()
+        local build = db.builds and db.builds[selectedBuildIdx]
+        if not build then return end
+        if not build.buildBlacklist then build.buildBlacklist = {} end
+
+        -- Collect unique echoes (deduplicate by groupId so all ranks count as one entry)
+        local perkDB = ProjectEbonhold and ProjectEbonhold.PerkDatabase
+        local seen, list = {}, {}
+        for sid in pairs(build.buildBlacklist) do
+            local perk = perkDB and perkDB[sid]
+            local gid  = perk and perk.groupId
+            local key  = (gid and gid > 0) and ("g"..gid) or ("s"..sid)
+            if not seen[key] then seen[key] = true; table.insert(list, sid) end
+        end
+
+        bBlLbl:SetText("Build Blacklist  ("..#list.." echoes):")
+        if #list == 0 then
+            bBlEmptyLbl:Show(); bBlChild:SetHeight(26); return
+        end
+        bBlEmptyLbl:Hide()
+        for i, sid in ipairs(list) do
+            local r    = GetBBlRow(i)
+            local info = GetCachedSpell(sid)
+            r._icon:SetTexture(info.icon); r._lbl:SetText(info.name)
+            do
+                local cSid = sid
+                r._removeBtn:SetScript("OnClick",function()
+                    local db2 = GetDB()
+                    local b2  = db2.builds and db2.builds[selectedBuildIdx]
+                    if not b2 or not b2.buildBlacklist then return end
+                    for _, gsid in ipairs(GetGroupSpellIds(cSid)) do
+                        b2.buildBlacklist[gsid] = nil
+                    end
+                    RefreshBuildBlacklist()
+                end)
+            end
+            r:Show()
+        end
+        bBlChild:SetHeight(math.max(#list*26, 26))
+    end
+
     RefreshBuildSearch = function(query)
         for i = 1, MAX_BSRCH do bSrchRows[i]:Hide() end
         if not query or #query < 2 then return end
@@ -2562,7 +2709,8 @@ local function BuildMainFrame()
             local qc  = QUALITY_COLOR[e.quality] or {1,1,1}
             local hex = string.format("%02x%02x%02x",
                 math.floor(qc[1]*255), math.floor(qc[2]*255), math.floor(qc[3]*255))
-            r._lbl:SetText("|cff"..hex..e.name.."|r  |cff444455(click to add)|r")
+            local hint = buildAddMode == "blacklist" and "(add to Blacklist)" or "(add to Priority)"
+            r._lbl:SetText("|cff"..hex..e.name.."|r  |cff444455"..hint.."|r")
             r._spellId = e.spellId
             do
                 local cSid = e.spellId
@@ -2571,11 +2719,21 @@ local function BuildMainFrame()
                     local db2 = GetDB()
                     local b   = db2.builds and db2.builds[selectedBuildIdx]
                     if not b then return end
-                    for _, ex in ipairs(b.echoes) do
-                        if SameGroup(ex, cSid) then return end  -- already present
+                    if buildAddMode == "blacklist" then
+                        -- Add all group ranks to the build's per-build blacklist
+                        if not b.buildBlacklist then b.buildBlacklist = {} end
+                        for _, gsid in ipairs(GetGroupSpellIds(cSid)) do
+                            b.buildBlacklist[gsid] = true
+                        end
+                        RefreshBuildBlacklist()
+                    else
+                        -- Add to priority list (deduplicated by group)
+                        for _, ex in ipairs(b.echoes) do
+                            if SameGroup(ex, cSid) then return end
+                        end
+                        table.insert(b.echoes, cSid)
+                        RefreshPrioList()
                     end
-                    table.insert(b.echoes, cSid)
-                    RefreshPrioList()
                     bSrchBox:SetText("")
                     for j = 1, MAX_BSRCH do bSrchRows[j]:Hide() end
                 end)
@@ -2667,11 +2825,13 @@ local function BuildMainFrame()
         local build = db.builds and db.builds[idx]
         if not build then return end
         selectedBuildIdx = idx
+        if not build.buildBlacklist then build.buildBlacklist = {} end
         bNameBox:SetText(build.name or "")
         bSrchBox:SetText("")
         for i = 1, MAX_BSRCH do bSrchRows[i]:Hide() end
         editorPlaceholder:Hide(); editorPane:Show()
         RefreshPrioList()
+        RefreshBuildBlacklist()
     end
 
     -- ── WIRE UP DEFERRED SCRIPTS ──────────────────────────────────────────

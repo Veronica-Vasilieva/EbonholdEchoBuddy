@@ -1,3 +1,19 @@
+## [4.6] - 2026-04-08
+
+### Added
+- Per-build blacklist in the Builds tab editor
+  - Each build now has its own blacklist stored in `build.buildBlacklist` (separate from the global blacklist)
+  - **[Priority] / [Blacklist]** mode toggle buttons next to the search box control where search results are added
+  - Build Blacklist panel shown side-by-side with the Priority List in the lower editor section
+  - Adding to the build blacklist applies to all ranks of an echo (groupId-aware, same as the global blacklist)
+  - Remove button per row; deduplicates display by groupId
+  - Active build's per-build blacklist is checked alongside the global blacklist in auto-select — echoes on either list are excluded
+  - `IsBuildBlacklisted(spellId)` helper performs the per-build check with legacy-save compatibility (group scan fallback)
+- Vertical mid-divider separates Priority List and Build Blacklist columns visually
+
+### Changed
+- Search box narrowed slightly (210px → 180px) to make room for the mode toggle buttons
+
 ## [4.5] - 2026-04-07
 
 ### Fixed
