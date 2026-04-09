@@ -2,7 +2,7 @@
 ## Title: Ebonhold Echo Buddy
 ## Notes: Recommends and auto-selects echoes with AI learning, synergy scoring, and full run history
 ## Author: Nu/Veronica
-## Version: 4.6
+## Version: 4.7
 ## Dependencies: ProjectEbonhold
 ## SavedVariables: EchoBuddyDB EchoBuddyLearnDB
 

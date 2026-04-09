@@ -43,6 +43,7 @@ local DB_DEFAULTS = {
     blacklistAction   = "banish",   -- "banish" | "reroll" | "banish_reroll"
     prioritizeNew     = false,
     noveltyStrength   = "Normal",   -- "Mild" | "Normal" | "Strong"
+    autoDisableLevel  = 0,          -- 0 = disabled; N = turn off auto-select at level N
 }
 
 local CLASS_MASK = {
@@ -904,6 +905,15 @@ runEventFrame:SetScript("OnEvent", function(self, event, arg1)
             currentRunStackCounts = {}
         end
         lastTrackedLevel = newLevel
+
+        -- Auto-disable auto-select at configured level
+        local db2       = GetDB()
+        local disableAt = db2.autoDisableLevel or 0
+        if disableAt > 0 and newLevel >= disableAt and db2.autoSelect then
+            db2.autoSelect = false
+            if _G["EBBAutoCheck"] then _G["EBBAutoCheck"]:SetChecked(false) end
+            print("|cffFFD700[Echo Buddy]|r |cffFF4444Auto-select disabled at level "..newLevel..".|r You can now use your Banishes and Rerolls manually. Re-enable in the Echo Buddy window if needed.")
+        end
 
     elseif event == "PLAYER_ENTERING_WORLD" then
         local lvl = UnitLevel and UnitLevel("player") or 1
@@ -3158,6 +3168,92 @@ local function BuildMainFrame()
     brNote:SetPoint("TOPLEFT",settingsPane,"TOPLEFT",24,-462)
     brNote:SetTextColor(0.40,0.38,0.55)
     brNote:SetText("Note: requires the server to expose a Banish or Reroll function on PerkService.")
+
+    -- Divider
+    local setDiv5 = settingsPane:CreateTexture(nil,"ARTWORK")
+    setDiv5:SetTexture("Interface\\Buttons\\WHITE8X8")
+    setDiv5:SetPoint("TOPLEFT",settingsPane,"TOPLEFT",15,-480)
+    setDiv5:SetPoint("TOPRIGHT",settingsPane,"TOPRIGHT",-15,-480)
+    setDiv5:SetHeight(1); setDiv5:SetVertexColor(0.88,0.72,0.18,0.50)
+
+    SettingsLabel("|cffBB88FFAuto-Select Level Cap|r", -490)
+
+    local lvlCapDesc = settingsPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    lvlCapDesc:SetPoint("TOPLEFT",settingsPane,"TOPLEFT",24,-512)
+    lvlCapDesc:SetTextColor(0.50,0.45,0.65)
+    lvlCapDesc:SetText("Automatically turn off auto-select when you reach a chosen level,\nso you can spend Banishes and Rerolls manually from that point.")
+
+    local lvlCapInputLbl = settingsPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    lvlCapInputLbl:SetPoint("TOPLEFT",settingsPane,"TOPLEFT",24,-544)
+    lvlCapInputLbl:SetTextColor(0.65,0.50,0.90)
+    lvlCapInputLbl:SetText("Disable at level:")
+
+    local lvlCapBox = CreateFrame("EditBox","EBBLvlCapBox",settingsPane,"InputBoxTemplate")
+    lvlCapBox:SetSize(52,20); lvlCapBox:SetPoint("TOPLEFT",settingsPane,"TOPLEFT",152,-542)
+    lvlCapBox:SetAutoFocus(false); lvlCapBox:SetMaxLetters(2); lvlCapBox:SetNumeric(true)
+    local function RefreshLvlCapBox()
+        local v = GetDB().autoDisableLevel or 0
+        lvlCapBox:SetText(v > 0 and tostring(v) or "")
+    end
+    RefreshLvlCapBox()
+
+    local lvlCapStatus = settingsPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    lvlCapStatus:SetPoint("TOPLEFT",settingsPane,"TOPLEFT",24,-568)
+    lvlCapStatus:SetTextColor(0.40,0.38,0.55)
+    local function RefreshLvlCapStatus()
+        local v = GetDB().autoDisableLevel or 0
+        if v > 0 then
+            lvlCapStatus:SetText("|cff44FF44Active:|r auto-select will disable at level "..v..".")
+        else
+            lvlCapStatus:SetText("|cff888877Inactive — no level cap set.|r")
+        end
+    end
+    RefreshLvlCapStatus()
+
+    local lvlSetBtn = CreateFrame("Button",nil,settingsPane,"GameMenuButtonTemplate")
+    lvlSetBtn:SetSize(60,24); lvlSetBtn:SetPoint("LEFT",lvlCapBox,"RIGHT",6,0)
+    lvlSetBtn:SetText("Set")
+    lvlSetBtn:SetScript("OnClick",function()
+        local v = tonumber(lvlCapBox:GetText())
+        if v and v >= 1 and v <= 80 then
+            GetDB().autoDisableLevel = v
+            lvlCapBox:ClearFocus()
+            RefreshLvlCapStatus()
+            print("|cffFFD700[Echo Buddy]|r Auto-select will turn off at level "..v..".")
+        else
+            print("|cffFF4444[Echo Buddy]|r Enter a level between 1 and 80.")
+            RefreshLvlCapBox()
+        end
+    end)
+    lvlCapBox:SetScript("OnEnterPressed",function(self)
+        lvlSetBtn:Click()
+    end)
+    lvlCapBox:SetScript("OnEscapePressed",function(self)
+        RefreshLvlCapBox(); self:ClearFocus()
+    end)
+
+    local lvlClearBtn = CreateFrame("Button",nil,settingsPane,"GameMenuButtonTemplate")
+    lvlClearBtn:SetSize(60,24); lvlClearBtn:SetPoint("LEFT",lvlSetBtn,"RIGHT",6,0)
+    lvlClearBtn:SetText("Clear")
+    lvlClearBtn:SetScript("OnClick",function()
+        GetDB().autoDisableLevel = 0
+        RefreshLvlCapBox()
+        RefreshLvlCapStatus()
+        print("|cffFFD700[Echo Buddy]|r Level cap cleared — auto-select will not disable automatically.")
+    end)
+
+    lvlSetBtn:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
+        GameTooltip:SetText("Save the level at which auto-select will turn off automatically.",nil,nil,nil,nil,true)
+        GameTooltip:Show()
+    end)
+    lvlSetBtn:SetScript("OnLeave",function() GameTooltip:Hide() end)
+    lvlClearBtn:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
+        GameTooltip:SetText("Remove the level cap so auto-select stays on indefinitely.",nil,nil,nil,nil,true)
+        GameTooltip:Show()
+    end)
+    lvlClearBtn:SetScript("OnLeave",function() GameTooltip:Hide() end)
 
     ---------------------------------------------------------------------------
     -- Activate Advisor tab by default

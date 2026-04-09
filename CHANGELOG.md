@@ -1,3 +1,13 @@
+## [4.7] - 2026-04-09
+
+### Added
+- **Auto-Select Level Cap** (Settings tab) — set a level at which auto-select turns itself off automatically
+  - New "Disable at level" input with **Set** and **Clear** buttons in a dedicated Settings section
+  - When the player reaches the configured level, auto-select is disabled, the checkbox in the Advisor tab is unchecked, and a chat notification is printed
+  - Notification text: "Auto-select disabled at level N. You can now use your Banishes and Rerolls manually."
+  - Setting persists across sessions via SavedVariables (`autoDisableLevel`); Clear sets it back to 0 (disabled)
+  - Live status line below the input shows whether a cap is active and at which level
+
 ## [4.6] - 2026-04-08
 
 ### Added
