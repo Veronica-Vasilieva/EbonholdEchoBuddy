@@ -2906,10 +2906,19 @@ local function BuildMainFrame()
     end)
 
     ---------------------------------------------------------------------------
-    -- PANE 5: SETTINGS
+    -- PANE 5: SETTINGS  (scrollable)
     ---------------------------------------------------------------------------
-    local settingsPane = MakePane()
-    table.insert(tabPanes, settingsPane)
+    local settingsPaneOuter = MakePane()
+    table.insert(tabPanes, settingsPaneOuter)
+
+    local settingsSF = CreateFrame("ScrollFrame","EBBSettingsSF",settingsPaneOuter,"UIPanelScrollFrameTemplate")
+    settingsSF:SetPoint("TOPLEFT",     settingsPaneOuter, "TOPLEFT",     4,  -4)
+    settingsSF:SetPoint("BOTTOMRIGHT", settingsPaneOuter, "BOTTOMRIGHT", -26,  4)
+
+    -- settingsPane is now the scroll child; all existing content code is unchanged
+    local settingsPane = CreateFrame("Frame", nil, settingsSF)
+    settingsPane:SetSize(720, 640)
+    settingsSF:SetScrollChild(settingsPane)
 
     local function SettingsLabel(text, yOff)
         local lbl = settingsPane:CreateFontString(nil,"OVERLAY","GameFontNormal")

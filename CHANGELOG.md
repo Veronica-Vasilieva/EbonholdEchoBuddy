@@ -1,3 +1,8 @@
+## [4.8] - 2026-04-09
+
+### Fixed
+- Settings tab now uses a scroll frame so content below the window edge (e.g. Auto-Select Level Cap) is fully accessible
+
 ## [4.7] - 2026-04-09
 
 ### Added
