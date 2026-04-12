@@ -1,3 +1,12 @@
+## [4.12] - 2026-04-12
+
+### Fixed
+- Banish and Reroll now use the confirmed server protocol directly (`ProjectEbonhold.sendToServer`) instead of unreliable UI button clicking
+  - **Banish**: sends CS=203 with the spellId of the first offered perk (sourced from `ProjectEbonhold.Perks.currentChoice`)
+  - **Reroll**: sends CS=27 with empty body
+  - Protocol opcodes confirmed by reading EbonPerkTest.lua and EbonExploit.lua source
+- `/ebscan` updated to show `sendToServer` availability, current banish/reroll charges, and active perk offer list with blacklist status
+
 ## [4.11] - 2026-04-12
 
 ### Fixed

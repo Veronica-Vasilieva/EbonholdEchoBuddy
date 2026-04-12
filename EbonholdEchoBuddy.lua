@@ -619,95 +619,31 @@ local function ShowToast(pickedName, score, infoLine, alts)
     end)
 end
 
--- Fires the OnClick script of a named global button frame.
--- Does NOT check IsVisible() — the frame may exist but IsVisible() can return
--- false in some parent-chain states even when the button is on screen.
-local function FireButton(frameName)
-    local btn = _G[frameName]
-    if not btn then return false end
-    local script = btn.GetScript and btn:GetScript("OnClick")
-    if script then
-        script(btn, "LeftButton", false)
-        return true
-    end
-    if btn.Click then
-        btn:Click()
-        return true
-    end
-    return false
+-- Send a message to the ProjectEbonhold server using the confirmed addon-message protocol.
+-- CS opcodes confirmed via EbonPerkTest/EbonExploit source inspection:
+--   CS=17  SELECT_PERK   body=spellId   (already used by PerkService.SelectPerk)
+--   CS=203 BANISH_PERK   body=spellId   (banish one offered perk by spell ID)
+--   CS=27  REQUEST_REROLL body=""        (reroll all current offered perks)
+local function EBSendToServer(opcode, body)
+    if not (ProjectEbonhold and ProjectEbonhold.sendToServer) then return false end
+    ProjectEbonhold.sendToServer(opcode, body or "")
+    return true
 end
 
--- Fire the banish action.
--- Layer 1: global frame "banishButton" (confirmed via in-game hide test)
--- Layer 2: PerkService / PerkUI API name probe
--- Layer 3: scan every PerkChoiceN for text containing "banish" (per-card banish buttons)
+-- Banish the first currently offered perk.
+-- Uses CS=203 with the spellId from ProjectEbonhold.Perks.currentChoice[1].
+-- Falls back to spellId=0 if the choice list is unavailable.
 local function TryBanish()
-    if FireButton("banishButton") then return true end
-    local svc = ProjectEbonhold and ProjectEbonhold.PerkService
-    if svc then
-        local fn = svc.BanishPerk or svc.Banish or svc.BanishPerks
-                or svc.SkipPerk   or svc.SkipPerks or svc.Skip
-        if fn then fn(svc) return true end
-    end
-    local pui = ProjectEbonhold and ProjectEbonhold.PerkUI
-    if pui then
-        local fn = pui.Banish or pui.BanishPerk or pui.DoBanish or pui.TriggerBanish
-        if fn then fn(pui) return true end
-    end
-    -- Last resort: fire the first visible PerkChoiceN whose text contains "banish"
-    for i = 1, 20 do
-        local btn = _G["PerkChoice"..i]
-        if btn then
-            local txt = (btn.GetText and btn:GetText()) or ""
-            if txt == "" then
-                local c = _G["PerkChoice"..i.."Text"]
-                if c and c.GetText then txt = c:GetText() or "" end
-            end
-            txt = txt:gsub("|c%x%x%x%x%x%x%x%x",""):gsub("|r",""):lower()
-            if txt:find("banish", 1, true) then
-                local s = btn.GetScript and btn:GetScript("OnClick")
-                if s then s(btn,"LeftButton",false) else btn:Click() end
-                return true
-            end
-        end
-    end
-    return false
+    if not (ProjectEbonhold and ProjectEbonhold.sendToServer) then return false end
+    local choices = ProjectEbonhold.Perks and ProjectEbonhold.Perks.currentChoice
+    local spellId = (choices and choices[1] and choices[1].spellId) or 0
+    return EBSendToServer(203, tostring(spellId))
 end
 
--- Fire the reroll action.
--- Layer 1: global frame "rerollButton"
--- Layer 2: PerkService / PerkUI API name probe
--- Layer 3: scan PerkChoiceN for "reroll" text
+-- Request a reroll of all currently offered perks.
+-- Uses CS=27 with empty body.
 local function TryReroll()
-    if FireButton("rerollButton") then return true end
-    local svc = ProjectEbonhold and ProjectEbonhold.PerkService
-    if svc then
-        local fn = svc.RerollPerk or svc.Reroll or svc.RerollPerks
-                or svc.RefreshPerks or svc.RefreshPerk or svc.Refresh
-        if fn then fn(svc) return true end
-    end
-    local pui = ProjectEbonhold and ProjectEbonhold.PerkUI
-    if pui then
-        local fn = pui.Reroll or pui.RerollPerk or pui.DoReroll or pui.TriggerReroll
-        if fn then fn(pui) return true end
-    end
-    for i = 1, 20 do
-        local btn = _G["PerkChoice"..i]
-        if btn then
-            local txt = (btn.GetText and btn:GetText()) or ""
-            if txt == "" then
-                local c = _G["PerkChoice"..i.."Text"]
-                if c and c.GetText then txt = c:GetText() or "" end
-            end
-            txt = txt:gsub("|c%x%x%x%x%x%x%x%x",""):gsub("|r",""):lower()
-            if txt:find("reroll", 1, true) then
-                local s = btn.GetScript and btn:GetScript("OnClick")
-                if s then s(btn,"LeftButton",false) else btn:Click() end
-                return true
-            end
-        end
-    end
-    return false
+    return EBSendToServer(27, "")
 end
 
 local function TryBanishReroll()
@@ -1862,19 +1798,19 @@ local function BuildMainFrame()
     cb:SetChecked(GetDB().autoSelect)
     autoCheckbox = cb
 
-    -- Manual Banish / Reroll buttons — always visible, fire the server frames directly
+    -- Manual Banish / Reroll buttons — always visible, send CS=203/CS=27 directly
     local banishBtn = CreateFrame("Button","EBBBanishBtn",mainFrame,"GameMenuButtonTemplate")
     banishBtn:SetSize(84,24)
     banishBtn:SetPoint("TOPLEFT",mainFrame,"TOPLEFT",220,-80)
     banishBtn:SetText("|cffFF6666Banish|r")
     banishBtn:SetScript("OnClick", function()
         if not TryBanish() then
-            print("|cffFF4444[Echo Buddy]|r Banish unavailable — banishButton frame not visible.")
+            print("|cffFF4444[Echo Buddy]|r Banish failed — ProjectEbonhold.sendToServer not available.")
         end
     end)
     banishBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText("Manually trigger Banish.\nOnly works while the echo selection screen is open.", nil,nil,nil,nil,true)
+        GameTooltip:SetText("Send CS=203 to banish the first offered perk.\nUse while the echo selection screen is open.", nil,nil,nil,nil,true)
         GameTooltip:Show()
     end)
     banishBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -1885,12 +1821,12 @@ local function BuildMainFrame()
     rerollBtn:SetText("|cff44DDFF Reroll|r")
     rerollBtn:SetScript("OnClick", function()
         if not TryReroll() then
-            print("|cffFF4444[Echo Buddy]|r Reroll unavailable — rerollButton frame not visible.")
+            print("|cffFF4444[Echo Buddy]|r Reroll failed — ProjectEbonhold.sendToServer not available.")
         end
     end)
     rerollBtn:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText("Manually trigger Reroll.\nOnly works while the echo selection screen is open.", nil,nil,nil,nil,true)
+        GameTooltip:SetText("Send CS=27 to reroll all offered perks.\nUse while the echo selection screen is open.", nil,nil,nil,nil,true)
         GameTooltip:Show()
     end)
     rerollBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -3412,65 +3348,51 @@ SlashCmdList["EBBLACKLIST"] = function(msg)
     end
 end
 
--- Diagnostic: dumps all PerkService/PerkUI functions and visible PerkChoice frames
--- so we can identify correct banish/reroll API names if the defaults don't work.
+-- Diagnostic: confirms the send protocol is available and shows current run state.
 SLASH_EBSCAN1="/ebscan"
 SlashCmdList["EBSCAN"] = function()
-    print("|cffFFD700[Echo Buddy] /ebscan — ProjectEbonhold API scan|r")
+    print("|cffFFD700[Echo Buddy] /ebscan — ProjectEbonhold diagnostics|r")
 
-    -- Scan PerkService
-    local svc = ProjectEbonhold and ProjectEbonhold.PerkService
-    if svc then
-        local fns = {}
-        for k, v in pairs(svc) do
-            if type(v) == "function" then table.insert(fns, k) end
-        end
-        table.sort(fns)
-        print("|cff00CCFFPerkService functions:|r")
-        for _, name in ipairs(fns) do print("  "..name) end
+    if not ProjectEbonhold then
+        print("|cffFF4444ProjectEbonhold: NOT LOADED|r"); return
+    end
+
+    -- sendToServer
+    if ProjectEbonhold.sendToServer then
+        print("|cff44FF44sendToServer: available|r  (CS=203 Banish, CS=27 Reroll, CS=17 Select)")
     else
-        print("|cffFF4444PerkService: not found|r")
+        print("|cffFF4444sendToServer: NOT FOUND — banish/reroll will not work|r")
     end
 
-    -- Scan PerkUI
-    local pui = ProjectEbonhold and ProjectEbonhold.PerkUI
-    if pui then
-        local fns = {}
-        for k, v in pairs(pui) do
-            if type(v) == "function" then table.insert(fns, k) end
-        end
-        table.sort(fns)
-        print("|cff00CCFFPerkUI functions:|r")
-        for _, name in ipairs(fns) do print("  "..name) end
+    -- Current run data (charges)
+    local data = ProjectEbonhold.PlayerRunService and
+                 ProjectEbonhold.PlayerRunService.GetCurrentData and
+                 ProjectEbonhold.PlayerRunService.GetCurrentData()
+    if data then
+        print("|cff00CCFFRun data:|r"
+            .."  Banishes="..tostring(data.remainingBanishes or "?")
+            .."  Rerolls="..tostring(data.usedRerolls or "?").."/"..tostring(data.totalRerolls or "?"))
     else
-        print("|cffFF4444PerkUI: not found|r")
+        print("|cffFF8800PlayerRunService data: unavailable|r")
     end
 
-    -- Scan named global frames: banishButton, rerollButton, PerkChoice1-20
-    print("|cff00CCFFKnown action frames:|r")
-    for _, fname in ipairs({"banishButton","rerollButton"}) do
-        local f = _G[fname]
-        if f then
-            local vis = f:IsVisible() and "|cff44FF44visible|r" or "|cffFF4444hidden|r"
-            local txt = (f.GetText and f:GetText()) or ""
-            print("  "..fname.." — "..vis..(txt~="" and (" '"..txt.."'") or ""))
-        else
-            print("  "..fname.." — |cff666666not found|r")
+    -- Current choices
+    local choices = ProjectEbonhold.Perks and ProjectEbonhold.Perks.currentChoice
+    if choices and #choices > 0 then
+        print("|cff00CCFFCurrent offered perks:|r")
+        for i, c in ipairs(choices) do
+            local name = GetSpellInfo(c.spellId) or ("spellId "..c.spellId)
+            local bl = IsBlacklisted(c.spellId) and "|cffFF4444[BL]|r" or ""
+            print("  ["..i.."] "..c.spellId.." "..name.." "..bl)
         end
+    else
+        print("|cff888888No active perk offer.|r")
     end
-    for i = 1, 20 do
-        local f = _G["PerkChoice"..i]
-        if f then
-            local vis = f:IsVisible() and "|cff44FF44visible|r" or "|cffFF4444hidden|r"
-            local txt = (f.GetText and f:GetText()) or ""
-            if txt == "" then
-                local c = _G["PerkChoice"..i.."Text"]
-                if c and c.GetText then txt = c:GetText() or "" end
-            end
-            txt = txt:gsub("|c%x%x%x%x%x%x%x%x",""):gsub("|r","")
-            print("  PerkChoice"..i.." — "..vis..(txt~="" and (" '"..txt.."'") or ""))
-        end
-    end
+
+    -- autoBanishReroll state
+    local db = GetDB()
+    print("|cff00CCFFauto-banish/reroll:|r "..(db.autoBanishReroll and "|cff44FF44ON|r" or "|cffFF4444OFF|r")
+        .."  action="..tostring(db.blacklistAction))
 end
 
 SLASH_EBAUTO1="/ebauto"
