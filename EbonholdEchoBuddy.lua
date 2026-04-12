@@ -144,6 +144,11 @@ local function GetDB()
     if EchoBuddyDB.favourites == nil then EchoBuddyDB.favourites = {} end
     if EchoBuddyDB.runHistory == nil then EchoBuddyDB.runHistory = {} end
     if EchoBuddyDB.builds     == nil then EchoBuddyDB.builds     = {} end
+    -- v4.11 migration: autoBanishReroll was previously off by default.
+    -- Force it on for all existing installs so the feature works immediately.
+    if EchoBuddyDB.autoBanishReroll == false then
+        EchoBuddyDB.autoBanishReroll = true
+    end
     return EchoBuddyDB
 end
 
@@ -615,24 +620,27 @@ local function ShowToast(pickedName, score, infoLine, alts)
 end
 
 -- Fires the OnClick script of a named global button frame.
--- Calling GetScript("OnClick") directly is more reliable than :Click() for
--- custom server frames. Falls back to :Click() if no script is registered.
+-- Does NOT check IsVisible() — the frame may exist but IsVisible() can return
+-- false in some parent-chain states even when the button is on screen.
 local function FireButton(frameName)
     local btn = _G[frameName]
     if not btn then return false end
-    if not btn:IsVisible() then return false end
     local script = btn.GetScript and btn:GetScript("OnClick")
     if script then
         script(btn, "LeftButton", false)
         return true
     end
-    btn:Click()
-    return true
+    if btn.Click then
+        btn:Click()
+        return true
+    end
+    return false
 end
 
 -- Fire the banish action.
--- Primary: global frame "banishButton" (confirmed via in-game testing).
--- Fallback: PerkService / PerkUI API name probe.
+-- Layer 1: global frame "banishButton" (confirmed via in-game hide test)
+-- Layer 2: PerkService / PerkUI API name probe
+-- Layer 3: scan every PerkChoiceN for text containing "banish" (per-card banish buttons)
 local function TryBanish()
     if FireButton("banishButton") then return true end
     local svc = ProjectEbonhold and ProjectEbonhold.PerkService
@@ -646,12 +654,30 @@ local function TryBanish()
         local fn = pui.Banish or pui.BanishPerk or pui.DoBanish or pui.TriggerBanish
         if fn then fn(pui) return true end
     end
+    -- Last resort: fire the first visible PerkChoiceN whose text contains "banish"
+    for i = 1, 20 do
+        local btn = _G["PerkChoice"..i]
+        if btn then
+            local txt = (btn.GetText and btn:GetText()) or ""
+            if txt == "" then
+                local c = _G["PerkChoice"..i.."Text"]
+                if c and c.GetText then txt = c:GetText() or "" end
+            end
+            txt = txt:gsub("|c%x%x%x%x%x%x%x%x",""):gsub("|r",""):lower()
+            if txt:find("banish", 1, true) then
+                local s = btn.GetScript and btn:GetScript("OnClick")
+                if s then s(btn,"LeftButton",false) else btn:Click() end
+                return true
+            end
+        end
+    end
     return false
 end
 
 -- Fire the reroll action.
--- Primary: global frame "rerollButton" (confirmed via in-game testing).
--- Fallback: PerkService / PerkUI API name probe.
+-- Layer 1: global frame "rerollButton"
+-- Layer 2: PerkService / PerkUI API name probe
+-- Layer 3: scan PerkChoiceN for "reroll" text
 local function TryReroll()
     if FireButton("rerollButton") then return true end
     local svc = ProjectEbonhold and ProjectEbonhold.PerkService
@@ -664,6 +690,22 @@ local function TryReroll()
     if pui then
         local fn = pui.Reroll or pui.RerollPerk or pui.DoReroll or pui.TriggerReroll
         if fn then fn(pui) return true end
+    end
+    for i = 1, 20 do
+        local btn = _G["PerkChoice"..i]
+        if btn then
+            local txt = (btn.GetText and btn:GetText()) or ""
+            if txt == "" then
+                local c = _G["PerkChoice"..i.."Text"]
+                if c and c.GetText then txt = c:GetText() or "" end
+            end
+            txt = txt:gsub("|c%x%x%x%x%x%x%x%x",""):gsub("|r",""):lower()
+            if txt:find("reroll", 1, true) then
+                local s = btn.GetScript and btn:GetScript("OnClick")
+                if s then s(btn,"LeftButton",false) else btn:Click() end
+                return true
+            end
+        end
     end
     return false
 end

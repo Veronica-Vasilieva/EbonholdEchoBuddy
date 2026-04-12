@@ -1,3 +1,10 @@
+## [4.11] - 2026-04-12
+
+### Fixed
+- Removed `IsVisible()` guard from `FireButton` — the frame can exist and be on screen while still returning false for `IsVisible()` in certain parent-chain states
+- Added per-card Banish/Reroll button scan as a third fallback layer (scans `PerkChoice1–20` for text containing "banish"/"reroll")
+- Existing installs with `autoBanishReroll = false` saved from old versions are now migrated to `true` on first load so the feature activates without requiring a settings change
+
 ## [4.10] - 2026-04-12
 
 ### Fixed
