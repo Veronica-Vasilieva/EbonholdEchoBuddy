@@ -835,12 +835,41 @@ local function InstallHook()
                 end
             end
             if allBlacklisted then
-                local actionLabel = ({banish="Banish",reroll="Reroll",banish_reroll="Banish/Reroll"})[GetDB().blacklistAction or "banish"] or "Banish"
-                After(GetDB().selectDelay or 0.6, function()
+                -- Kick off the banish/reroll loop. After each action we wait for
+                -- the server to push replacement choices, then re-evaluate. The
+                -- loop keeps firing until choices are no longer all blacklisted,
+                -- charges run out, or the offer disappears entirely.
+                local function BanishRerollLoop()
+                    local db2     = GetDB()
+                    local current = ProjectEbonhold.Perks and ProjectEbonhold.Perks.currentChoice
+                    if not current or #current == 0 then return end  -- offer gone
+
+                    -- Check whether the (possibly new) choices are still all blacklisted
+                    local stillBlacklisted = true
+                    for _, c in ipairs(current) do
+                        if not IsBlacklisted(c.spellId) and not IsBuildBlacklisted(c.spellId) then
+                            stillBlacklisted = false
+                            break
+                        end
+                    end
+
+                    if not stillBlacklisted then
+                        -- Fresh, non-blacklisted choices arrived — hand off to auto-select
+                        if db2.autoSelect then DoAutoSelect(current) end
+                        return
+                    end
+
+                    -- Still all blacklisted: fire another action and reschedule
+                    local actionLabel = ({banish="Banish",reroll="Reroll",banish_reroll="Banish/Reroll"})[db2.blacklistAction or "banish"] or "Banish"
                     if TryBanishReroll() then
                         ShowToast("All choices blacklisted", 0, actionLabel.." triggered automatically", {})
+                        -- Wait: selectDelay + 0.8 s for server round-trip then check again
+                        After((db2.selectDelay or 0.6) + 0.8, BanishRerollLoop)
                     end
-                end)
+                    -- If TryBanishReroll returns false (no charges) the loop ends silently
+                end
+
+                After(GetDB().selectDelay or 0.6, BanishRerollLoop)
                 return  -- don't run auto-select on top of a banish/reroll
             end
         end

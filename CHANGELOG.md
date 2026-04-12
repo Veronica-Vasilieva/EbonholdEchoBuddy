@@ -1,3 +1,8 @@
+## [4.15] - 2026-04-12
+
+### Fixed
+- Auto-banish/reroll no longer gets stuck after the first action. Replaced the one-shot `After` with a self-rescheduling loop (`BanishRerollLoop`) that re-reads `ProjectEbonhold.Perks.currentChoice` after each server round-trip (~selectDelay + 0.8 s). If replacement choices are still all blacklisted it fires again; if usable choices arrive it hands off to auto-select; if charges run out the loop ends cleanly.
+
 ## [4.14] - 2026-04-12
 
 ### Fixed
