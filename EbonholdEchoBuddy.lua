@@ -39,7 +39,7 @@ local DB_DEFAULTS = {
     selectDelay       = 0.6,
     useAIScores       = true,
     difficulty        = "Standard",
-    autoBanishReroll  = false,
+    autoBanishReroll  = true,
     blacklistAction   = "banish",   -- "banish" | "reroll" | "banish_reroll"
     prioritizeNew     = false,
     noveltyStrength   = "Normal",   -- "Mild" | "Normal" | "Strong"
@@ -766,16 +766,7 @@ local function DoAutoSelect(choices)
     end
 
     if #scored == 0 then
-        -- Every offered echo is blacklisted. Attempt auto-banish/reroll if enabled.
-        if GetDB().autoBanishReroll then
-            local actionLabel = ({banish="Banish", reroll="Reroll", banish_reroll="Banish/Reroll"})[GetDB().blacklistAction or "banish"] or "Banish"
-            After(GetDB().selectDelay or 0.6, function()
-                if TryBanishReroll() then
-                    ShowToast("All choices blacklisted", 0,
-                        actionLabel.." triggered automatically", {})
-                end
-            end)
-        end
+        -- All offered echoes were blacklisted — the hook already handles auto-banish/reroll.
         return
     end
     table.sort(scored, function(a,b) return a.score > b.score end)
@@ -826,14 +817,37 @@ local function InstallHook()
 
     hookInstalled = true
 
-    -- Hook PerkUI.Show: store offered choices and trigger auto-select
+    -- Hook PerkUI.Show: store offered choices, auto-banish/reroll if all blacklisted,
+    -- then trigger auto-select for normal picking.
     local origShow = ProjectEbonhold.PerkUI.Show
     ProjectEbonhold.PerkUI.Show = function(choices)
         origShow(choices)
-        if choices and #choices > 0 then
-            currentOfferedChoices = choices
+        if not (choices and #choices > 0) then return end
+        currentOfferedChoices = choices
+
+        -- Auto-banish/reroll runs independently of autoSelect.
+        -- If every offered choice is blacklisted and the feature is enabled,
+        -- fire the configured action after the select delay.
+        if GetDB().autoBanishReroll then
+            local allBlacklisted = true
+            for _, choice in ipairs(choices) do
+                if not IsBlacklisted(choice.spellId) and not IsBuildBlacklisted(choice.spellId) then
+                    allBlacklisted = false
+                    break
+                end
+            end
+            if allBlacklisted then
+                local actionLabel = ({banish="Banish",reroll="Reroll",banish_reroll="Banish/Reroll"})[GetDB().blacklistAction or "banish"] or "Banish"
+                After(GetDB().selectDelay or 0.6, function()
+                    if TryBanishReroll() then
+                        ShowToast("All choices blacklisted", 0, actionLabel.." triggered automatically", {})
+                    end
+                end)
+                return  -- don't run auto-select on top of a banish/reroll
+            end
         end
-        if GetDB().autoSelect and choices and #choices > 0 then
+
+        if GetDB().autoSelect then
             DoAutoSelect(choices)
         end
     end
@@ -3148,7 +3162,7 @@ local function BuildMainFrame()
     end)
     brCB:SetScript("OnEnter",function(self)
         GameTooltip:SetOwner(self,"ANCHOR_BOTTOM")
-        GameTooltip:SetText("When auto-select is on and every offered echo is blacklisted,\nautomatically trigger the Banish or Reroll action instead\nof picking a blacklisted echo.",nil,nil,nil,nil,true)
+        GameTooltip:SetText("When every offered echo is blacklisted, automatically\ntrigger the action below. Works even with auto-select off.\nEnabled by default.",nil,nil,nil,nil,true)
         GameTooltip:Show()
     end)
     brCB:SetScript("OnLeave",function() GameTooltip:Hide() end)

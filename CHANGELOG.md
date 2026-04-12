@@ -1,3 +1,10 @@
+## [4.10] - 2026-04-12
+
+### Fixed
+- Auto-banish/reroll now fires **independently of auto-select** — it triggers any time all three offered echoes are blacklisted, even if the player is picking manually
+- Auto-banish/reroll is now **enabled by default** (was previously off by default, requiring manual activation in Settings)
+- Removed duplicate banish/reroll check inside `DoAutoSelect`; the single authoritative check now lives in the `PerkUI.Show` hook
+
 ## [4.9] - 2026-04-12
 
 ### Added
