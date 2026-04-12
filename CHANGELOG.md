@@ -1,3 +1,15 @@
+## [4.14] - 2026-04-12
+
+### Fixed
+- Banish (CS=203) now sends perk index `"0"` as the body instead of the spell ID. The server expects a 0-based position index in the offer list, not a spell ID — the spell ID body was a security exploit pattern from EbonPerkTest, not the legitimate call format.
+
+## [4.13] - 2026-04-12
+
+### Fixed
+- `TryBanish()` now checks `remainingBanishes > 0` before sending CS=203. Previously it sent the request regardless and always returned `true`, so `banish_reroll` mode never fell through to reroll when banishes were exhausted.
+- `TryReroll()` now checks `totalRerolls - usedRerolls > 0` before sending CS=27.
+- `TryBanishReroll()` error messages now state the actual reason (no charges vs API unavailable).
+
 ## [4.12] - 2026-04-12
 
 ### Fixed

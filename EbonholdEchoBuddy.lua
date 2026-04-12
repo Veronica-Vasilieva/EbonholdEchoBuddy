@@ -630,39 +630,59 @@ local function EBSendToServer(opcode, body)
     return true
 end
 
--- Banish the first currently offered perk.
--- Uses CS=203 with the spellId from ProjectEbonhold.Perks.currentChoice[1].
--- Falls back to spellId=0 if the choice list is unavailable.
-local function TryBanish()
-    if not (ProjectEbonhold and ProjectEbonhold.sendToServer) then return false end
-    local choices = ProjectEbonhold.Perks and ProjectEbonhold.Perks.currentChoice
-    local spellId = (choices and choices[1] and choices[1].spellId) or 0
-    return EBSendToServer(203, tostring(spellId))
+-- Returns current run data from PlayerRunService, or an empty table.
+local function GetRunData()
+    return (ProjectEbonhold and ProjectEbonhold.PlayerRunService
+        and ProjectEbonhold.PlayerRunService.GetCurrentData
+        and ProjectEbonhold.PlayerRunService.GetCurrentData()) or {}
 end
 
--- Request a reroll of all currently offered perks.
--- Uses CS=27 with empty body.
+-- Banish the first currently offered perk (CS=203).
+-- Body is the perk index (0-based position in the offer list), NOT the spell ID.
+-- Confirmed from EbonExploit source: variable named perkIdx, button label "[Idx]".
+-- Returns false without sending if no banish charges remain.
+local function TryBanish()
+    if not (ProjectEbonhold and ProjectEbonhold.sendToServer) then return false end
+    local data = GetRunData()
+    if (data.remainingBanishes or 0) <= 0 then return false end
+    return EBSendToServer(203, "0")  -- index 0 = first offered perk
+end
+
+-- Request a reroll of all currently offered perks (CS=27).
+-- Returns false without sending if no reroll charges remain.
 local function TryReroll()
+    if not (ProjectEbonhold and ProjectEbonhold.sendToServer) then return false end
+    local data = GetRunData()
+    local remaining = (data.totalRerolls or 0) - (data.usedRerolls or 0)
+    if remaining <= 0 then return false end
     return EBSendToServer(27, "")
 end
 
 local function TryBanishReroll()
     local action = GetDB().blacklistAction or "banish"
+    local data   = GetRunData()
+    local banishesLeft = data.remainingBanishes or 0
+    local rerollsLeft  = (data.totalRerolls or 0) - (data.usedRerolls or 0)
+
     if action == "banish" then
         if TryBanish() then return true end
-        print("|cffFF4444[Echo Buddy]|r Banish unavailable — banishButton not visible and no matching PerkService function.")
+        print("|cffFF4444[Echo Buddy]|r Banish unavailable — "
+            ..(banishesLeft <= 0 and "no banish charges remaining." or "sendToServer not found."))
         return false
     elseif action == "reroll" then
         if TryReroll() then return true end
-        print("|cffFF4444[Echo Buddy]|r Reroll unavailable — rerollButton not visible and no matching PerkService function.")
+        print("|cffFF4444[Echo Buddy]|r Reroll unavailable — "
+            ..(rerollsLeft <= 0 and "no reroll charges remaining." or "sendToServer not found."))
         return false
-    else  -- "banish_reroll"
+    else  -- "banish_reroll": try banish first, fall back to reroll
         if TryBanish() then return true end
         if TryReroll() then
-            print("|cffFFD700[Echo Buddy]|r Banish unavailable, used Reroll instead.")
+            if banishesLeft <= 0 then
+                print("|cffFFD700[Echo Buddy]|r No banishes left — used Reroll instead.")
+            end
             return true
         end
-        print("|cffFF4444[Echo Buddy]|r Neither Banish nor Reroll could be triggered.")
+        print("|cffFF4444[Echo Buddy]|r No banish or reroll charges remaining.")
         return false
     end
 end
