@@ -566,6 +566,20 @@ local function After(sec, fn)
     f:Show()
 end
 
+-- In-session action log — banish/reroll/select events shown in the Stats tab
+-- Never written to chat; GUI only.
+local actionLog       = {}
+local MAX_ACTION_LOG  = 150
+local refreshActionLogFn = nil  -- set by the Stats tab widget on creation
+
+local function AddActionLog(msg)
+    table.insert(actionLog, 1, {t = time(), msg = msg})
+    if #actionLog > MAX_ACTION_LOG then
+        table.remove(actionLog, MAX_ACTION_LOG + 1)
+    end
+    if refreshActionLogFn then refreshActionLogFn() end
+end
+
 -- Toast notification — now shows up to 2 alternatives (top-3 total)
 local toastFrame
 local function ShowToast(pickedName, score, infoLine, alts)
@@ -658,22 +672,18 @@ local function TryReroll()
     return EBSendToServer(27, "")
 end
 
+-- Returns "banish" or "reroll" (which action fired) or false (no charges / unavailable).
 local function TryBanishReroll()
     local action = GetDB().blacklistAction or "banish"
-    local data   = GetRunData()
-    local banishesLeft = data.remainingBanishes or 0
-    local rerollsLeft  = (data.totalRerolls or 0) - (data.usedRerolls or 0)
-
     if action == "banish" then
-        if TryBanish() then return true end
-        -- No charges or API unavailable — return false silently so the caller can fall back
+        if TryBanish() then return "banish" end
         return false
     elseif action == "reroll" then
-        if TryReroll() then return true end
+        if TryReroll() then return "reroll" end
         return false
     else  -- "banish_reroll": try banish first, fall back to reroll
-        if TryBanish() then return true end
-        if TryReroll() then return true end
+        if TryBanish() then return "banish" end
+        if TryReroll() then return "reroll" end
         return false
     end
 end
@@ -792,6 +802,8 @@ local function DoAutoSelect(choices)
         if svc and svc.SelectPerk then
             svc.SelectPerk(best.spellId)
             ShowToast(best.name, best.score, infoLine, alts)
+            AddActionLog("|cff44FF44Selected:|r "..best.name
+                .."  |cff888888Score: "..math.floor(best.score).."|r")
         end
     end)
 end
@@ -861,13 +873,24 @@ local function InstallHook()
                     end
 
                     -- Still all blacklisted: fire another action and reschedule
-                    local actionLabel = ({banish="Banish",reroll="Reroll",banish_reroll="Banish/Reroll"})[db2.blacklistAction or "banish"] or "Banish"
-                    if TryBanishReroll() then
-                        ShowToast("All choices blacklisted", 0, actionLabel.." triggered automatically", {})
+                    -- Build a readable list of the rejected echo names for the log
+                    local rejNames = {}
+                    for _, c in ipairs(current) do
+                        table.insert(rejNames, GetCachedSpell(c.spellId).name or ("id:"..c.spellId))
+                    end
+                    local rejStr = table.concat(rejNames, ", ")
+
+                    local acted = TryBanishReroll()
+                    if acted then
+                        local lbl = acted == "banish"
+                            and "|cffFF8800Banished:|r "
+                            or  "|cff00CCFFRerolled:|r "
+                        AddActionLog(lbl..rejStr)
                         -- Wait: selectDelay + 0.8 s for server round-trip then check again
                         After((db2.selectDelay or 0.6) + 0.8, BanishRerollLoop)
                     else
                         -- No charges left — fall back to picking the best of the blacklisted choices
+                        AddActionLog("|cff666677No charges — picking best from:|r "..rejStr)
                         if db2.autoSelect then DoAutoSelect(current) end
                     end
                 end
@@ -1856,8 +1879,18 @@ local function BuildMainFrame()
     banishBtn:SetPoint("TOPLEFT",mainFrame,"TOPLEFT",220,-80)
     banishBtn:SetText("|cffFF6666Banish|r")
     banishBtn:SetScript("OnClick", function()
-        if not TryBanish() then
-            print("|cffFF4444[Echo Buddy]|r Banish failed — ProjectEbonhold.sendToServer not available.")
+        local choices = ProjectEbonhold and ProjectEbonhold.Perks and ProjectEbonhold.Perks.currentChoice
+        if TryBanish() then
+            local names = {}
+            if choices then
+                for _, c in ipairs(choices) do
+                    table.insert(names, GetCachedSpell(c.spellId).name or ("id:"..c.spellId))
+                end
+            end
+            local s = #names > 0 and table.concat(names, ", ") or "unknown"
+            AddActionLog("|cffFF8800Banished (manual):|r "..s)
+        else
+            AddActionLog("|cffFF4444Banish failed|r — no charges or API unavailable")
         end
     end)
     banishBtn:SetScript("OnEnter", function(self)
@@ -1872,8 +1905,18 @@ local function BuildMainFrame()
     rerollBtn:SetPoint("LEFT",banishBtn,"RIGHT",6,0)
     rerollBtn:SetText("|cff44DDFF Reroll|r")
     rerollBtn:SetScript("OnClick", function()
-        if not TryReroll() then
-            print("|cffFF4444[Echo Buddy]|r Reroll failed — ProjectEbonhold.sendToServer not available.")
+        local choices = ProjectEbonhold and ProjectEbonhold.Perks and ProjectEbonhold.Perks.currentChoice
+        if TryReroll() then
+            local names = {}
+            if choices then
+                for _, c in ipairs(choices) do
+                    table.insert(names, GetCachedSpell(c.spellId).name or ("id:"..c.spellId))
+                end
+            end
+            local s = #names > 0 and table.concat(names, ", ") or "unknown"
+            AddActionLog("|cff00CCFFRerolled (manual):|r "..s)
+        else
+            AddActionLog("|cffFF4444Reroll failed|r — no charges or API unavailable")
         end
     end)
     rerollBtn:SetScript("OnEnter", function(self)
@@ -2160,26 +2203,92 @@ local function BuildMainFrame()
     local statsPane = MakePane()
     table.insert(tabPanes, statsPane)
 
+    -- AI learning stats text (reduced height to make room for action log below)
     local statsText = statsPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
     statsText:SetPoint("TOPLEFT",statsPane,"TOPLEFT",20,-12)
     statsText:SetPoint("TOPRIGHT",statsPane,"TOPRIGHT",-20,-12)
-    statsText:SetHeight(200)
+    statsText:SetHeight(140)
     statsText:SetJustifyH("LEFT"); statsText:SetJustifyV("TOP")
     statsText:SetText("|cff665599Loading...|r")
 
-    -- Run history scroll frame
+    -- Action Log section divider
+    local alogDiv = statsPane:CreateTexture(nil,"ARTWORK")
+    alogDiv:SetTexture("Interface\\Buttons\\WHITE8X8")
+    alogDiv:SetPoint("TOPLEFT",statsPane,"TOPLEFT",15,-160)
+    alogDiv:SetPoint("TOPRIGHT",statsPane,"TOPRIGHT",-15,-160)
+    alogDiv:SetHeight(1); alogDiv:SetVertexColor(0.88,0.72,0.18,0.60)
+
+    local alogLabel = statsPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    alogLabel:SetPoint("TOPLEFT",statsPane,"TOPLEFT",20,-170)
+    alogLabel:SetText("|cffAA8833Action Log (this session — newest first)|r")
+
+    -- Action log scroll frame (shows banish/reroll/select events; cleared on /reload)
+    local alogSF = CreateFrame("ScrollFrame","EBBAlogSF",statsPane,"UIPanelScrollFrameTemplate")
+    alogSF:SetPoint("TOPLEFT",statsPane,"TOPLEFT",16,-186)
+    alogSF:SetPoint("TOPRIGHT",statsPane,"TOPRIGHT",-34,-186)
+    alogSF:SetHeight(150)
+    local alogChild = CreateFrame("Frame","EBBAlogChild",alogSF)
+    alogChild:SetSize(600,1); alogSF:SetScrollChild(alogChild)
+
+    local alogRows = {}
+    local function RefreshActionLog()
+        local count = #actionLog
+        -- Hide extra rows
+        for i = count+1, #alogRows do
+            if alogRows[i] then alogRows[i]:Hide() end
+        end
+        local rowH = 20
+        for idx = 1, count do
+            local entry = actionLog[idx]   -- already newest-first
+            if not alogRows[idx] then
+                local r = CreateFrame("Frame",nil,alogChild)
+                r:SetSize(600,rowH)
+                local bg = r:CreateTexture(nil,"BACKGROUND")
+                bg:SetAllPoints(); bg:SetTexture("Interface\\Buttons\\WHITE8X8")
+                bg:SetVertexColor(0.04,0.04,0.14); bg:SetAlpha(idx%2==0 and 0.5 or 0)
+                local lbl = r:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+                lbl:SetPoint("LEFT",r,"LEFT",8,0); lbl:SetSize(580,rowH)
+                lbl:SetJustifyH("LEFT"); r._lbl = lbl
+                alogRows[idx] = r
+            end
+            local r = alogRows[idx]
+            r:SetPoint("TOPLEFT",alogChild,"TOPLEFT",0,-(idx-1)*rowH)
+            local ts = date("%H:%M:%S", entry.t or 0)
+            r._lbl:SetText("|cff555566["..ts.."]|r  "..entry.msg)
+            r:SetSize(600,rowH); r:Show()
+        end
+        if count == 0 then
+            if not alogRows._empty then
+                local r = CreateFrame("Frame",nil,alogChild)
+                r:SetSize(600,20)
+                local lbl = r:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+                lbl:SetPoint("LEFT",r,"LEFT",8,0); lbl:SetSize(580,20)
+                lbl:SetText("|cff444455No actions yet this session.|r")
+                alogRows._empty = r
+            end
+            alogRows._empty:SetPoint("TOPLEFT",alogChild,"TOPLEFT",0,0)
+            alogRows._empty:Show()
+        elseif alogRows._empty then
+            alogRows._empty:Hide()
+        end
+        alogChild:SetHeight(math.max(1, count * 20))
+    end
+    -- Register so AddActionLog() can push updates live
+    refreshActionLogFn = RefreshActionLog
+
+    -- Run history section divider
     local histDiv = statsPane:CreateTexture(nil,"ARTWORK")
     histDiv:SetTexture("Interface\\Buttons\\WHITE8X8")
-    histDiv:SetPoint("TOPLEFT",statsPane,"TOPLEFT",15,-218)
-    histDiv:SetPoint("TOPRIGHT",statsPane,"TOPRIGHT",-15,-218)
+    histDiv:SetPoint("TOPLEFT",statsPane,"TOPLEFT",15,-344)
+    histDiv:SetPoint("TOPRIGHT",statsPane,"TOPRIGHT",-15,-344)
     histDiv:SetHeight(1); histDiv:SetVertexColor(0.88,0.72,0.18,0.60)
 
     local histLabel = statsPane:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    histLabel:SetPoint("TOPLEFT",statsPane,"TOPLEFT",20,-228)
+    histLabel:SetPoint("TOPLEFT",statsPane,"TOPLEFT",20,-354)
     histLabel:SetText("|cffAA8833Recent Run History (newest first)|r")
 
     local histSF = CreateFrame("ScrollFrame","EBBHistSF",statsPane,"UIPanelScrollFrameTemplate")
-    histSF:SetPoint("TOPLEFT",statsPane,"TOPLEFT",16,-244)
+    histSF:SetPoint("TOPLEFT",statsPane,"TOPLEFT",16,-370)
     histSF:SetPoint("BOTTOMRIGHT",statsPane,"BOTTOMRIGHT",-34,14)
     local histChild = CreateFrame("Frame","EBBHistChild",histSF)
     histChild:SetSize(600,1); histSF:SetScrollChild(histChild)
@@ -2206,6 +2315,9 @@ local function BuildMainFrame()
         table.insert(lines," ")
         table.insert(lines,"|cff888888Total runs recorded: "..totalRuns.." (max "..MAX_RUN_HISTORY..")|r")
         statsText:SetText(table.concat(lines,"\n"))
+
+        -- Refresh action log too
+        RefreshActionLog()
 
         -- Run history rows
         local history = GetDB().runHistory

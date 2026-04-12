@@ -1,3 +1,17 @@
+## [4.17] - 2026-04-12
+
+### Added
+- **In-GUI Action Log** in the Stats tab — a scrollable, timestamped log (newest first) showing every banish, reroll, and auto-select that occurred this session, including which echo names were rejected and what was ultimately picked
+  - Auto-banish entries show the names of all three rejected echoes in orange
+  - Auto-reroll entries show the rejected names in cyan
+  - Auto-select entries show the chosen echo name and score in green
+  - "No charges" fallback entries shown in grey
+  - Manual Banish and Reroll button clicks are also logged
+  - Log is in-session only (cleared on /reload); max 150 entries
+
+### Fixed
+- All chat `print()` calls from Banish/Reroll actions removed — no more chat spam of any kind from auto-banish/reroll or manual buttons; all feedback lives in the Action Log
+
 ## [4.16] - 2026-04-12
 
 ### Fixed
