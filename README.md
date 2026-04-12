@@ -23,6 +23,16 @@ Hooks directly into the echo choice popup and automatically picks the highest-sc
 - Configurable delay before selecting (default 0.6 s) so the UI has time to render
 - On-screen toast notification shows what was picked, why, and the **2nd and 3rd alternatives** considered
 - Toggle on/off instantly with `/ebauto` or from the GUI
+- **Auto-Select Level Cap** — configure a level at which auto-select turns itself off automatically, so you can take manual control of your Banishes and Rerolls from that point onward
+
+### Auto-Banish / Auto-Reroll
+When every offered echo is on your blacklist, the addon automatically fires Banish or Reroll (your choice) to get a fresh set of options — without you having to lift a finger.
+
+- Enabled by default; toggle and mode selector in the **Settings tab**
+- Three action modes: **Banish**, **Reroll**, or **Banish-then-Reroll** (tries Banish first, falls back to Reroll if banishes are exhausted)
+- Loops automatically when multiple banishes are needed in a row — polls for the replacement offer after each server round-trip and fires again if the new choices are still all blacklisted
+- When both Banishes and Rerolls are exhausted, silently falls back to picking the best available echo from the offered choices (no chat spam)
+- **Manual Banish and Reroll buttons** are also available in the auto-select strip for instant one-click use while the selection screen is open
 
 ### AI Learning Engine
 Every echo choice and every run outcome teaches the addon which echoes actually perform best. Three independent signals are combined:
@@ -52,7 +62,7 @@ Learning data persists across sessions via `SavedVariables` and is stored per cl
 
 ### From the Releases page (recommended)
 
-1. Go to the [Releases page](../../releases/latest) and download `EbonholdEchoBuddy-v4.5.zip`
+1. Go to the [Releases page](../../releases/latest) and download `EbonholdEchoBuddy-v4.16.zip`
 2. Extract the zip — you will get a folder called `EbonholdEchoBuddy`
 3. Copy that folder into your WoW AddOns directory:
    ```
@@ -87,6 +97,7 @@ Learning data persists across sessions via `SavedVariables` and is stored per cl
 | `/ebreset [role]` | Wipe AI data for your current class + role (or all if omitted) |
 | `/ebblacklist` | List all blacklisted echoes |
 | `/ebblacklist clear` | Remove all echoes from the blacklist |
+| `/ebscan` | Dump `sendToServer` availability, current Banish/Reroll charges, and the active offer list with blacklist status — useful for diagnosing Banish/Reroll issues |
 | `/eb help` | List all commands |
 
 ---
@@ -102,6 +113,7 @@ Synergy bonus   = FAMILY_SYNERGY_BONUS (8) * min(echoes_in_build_with_same_famil
 Stack bonus     = +20 if one pick away from completing a stack
                = -999 if already at maxStack (echo excluded)
 Favourite bonus = +25 if echo is starred by the player
+Build bonus     = +50 if echo is on the active named build's priority list
 
 ELO adjustment  = clamp((ELO - 1200) / 400 * 25,  -25, +25)
 Run adjustment  = clamp((avgLevelReached / 80 - 0.5) * 30,  -15, +15)
@@ -109,7 +121,7 @@ UCB1 bonus      = min(8 * sqrt(ln(roleTotal) / comparisons),  10)
 
 confidence      = min(1.0, comparisons / 30)
 
-Final score     = StaticScore + Synergy + Stack + Favourite
+Final score     = StaticScore + Synergy + Stack + Favourite + Build
                 + (ELO_adj + Run_adj) * confidence
                 + UCB1_bonus * (1 - confidence)
 ```
@@ -189,13 +201,18 @@ Create and manage named echo priority lists.
 - Set an active build — matching echoes receive a **+50 score bonus** in auto-select (rank-agnostic: any quality tier of the same echo counts)
 - Search for echoes by name and add them to a build with one click
 - Remove individual echoes or delete an entire build
+- **Per-build blacklist** — each build has its own independent blacklist shown side-by-side with its priority list
+  - Toggle between **[Priority]** and **[Blacklist]** mode using the buttons next to the search box to control which list search results are added to
+  - The per-build blacklist applies to all quality ranks of an echo (groupId-aware, same as the global blacklist)
+  - Both the global blacklist and the active build's per-build blacklist are checked during auto-select — echoes on either list are excluded
 
 ### Settings tab
-All configuration options in one place:
+All configuration options in one place (scrollable — content is fully accessible even on smaller screens):
 - **Blend AI scores** toggle
 - **Auto-select delay** (0.0 – 5.0 seconds)
 - **Difficulty preset** selector (Standard / Speedrun / Hardcore)
 - **Blacklist behaviour** — choose Banish, Reroll, or Banish-then-Reroll when all choices are blacklisted
+- **Auto-Select Level Cap** — enter a level and click **Set** to have auto-select turn itself off when you reach that level, freeing you to spend your Banishes and Rerolls manually. Click **Clear** to disable the cap. A status line confirms whether a cap is active.
 - **Export / Import** learning data — share your AI model with guildmates or back it up between clients
 
 ---
@@ -216,7 +233,7 @@ Importing **merges** with existing data rather than replacing it, so you can saf
 
 | Variable | Contents |
 |---|---|
-| `EchoBuddyDB` | Settings: selected role, auto-select toggle, delay, AI toggle, difficulty preset, blacklist, favourites, run history |
+| `EchoBuddyDB` | Settings: selected role, auto-select toggle, delay, AI toggle, difficulty preset, blacklist, favourites, builds, run history, auto-disable level cap |
 | `EchoBuddyLearnDB` | Per class+role, per-echo AI data: ELO rating, wins, losses, run count, average level reached |
 
 At each login, zero-data entries are automatically pruned from `EchoBuddyLearnDB` to keep the file lean, and all ELO ratings receive a small 2% nudge toward the baseline (1200) to prevent permanently extreme values from old data.
@@ -236,6 +253,17 @@ At each login, zero-data entries are automatically pruned from `EchoBuddyLearnDB
 
 | Version | Changes |
 |---|---|
+| 4.16 | No chat spam when Banish/Reroll charges are exhausted — falls back silently to auto-selecting the best available echo instead |
+| 4.15 | Auto-banish/reroll no longer gets stuck after the first action — self-rescheduling loop polls for new choices after each server round-trip and fires again if they are still blacklisted |
+| 4.14 | Banish now sends the correct perk index to the server instead of the spell ID |
+| 4.13 | Banish and Reroll now check remaining charges before sending — banish_reroll mode correctly falls through to Reroll when Banishes are exhausted |
+| 4.12 | Banish and Reroll use the confirmed server protocol (`sendToServer`) directly — eliminates all frame-click unreliability · `/ebscan` diagnostic command added |
+| 4.11 | Removed `IsVisible()` guard from Banish/Reroll button detection · per-card button scan fallback added · existing installs with auto-banish disabled are silently migrated to enabled |
+| 4.10 | Auto-banish/reroll fires independently of auto-select (triggers whenever all offers are blacklisted, even during manual play) · enabled by default |
+| 4.9 | Manual Banish and Reroll buttons added to the auto-select strip · `/ebscan` slash command for diagnosing Banish/Reroll state |
+| 4.8 | Settings tab wrapped in a scroll frame — content below the window edge (e.g. Auto-Select Level Cap) is now fully accessible |
+| 4.7 | Auto-Select Level Cap — set a level at which auto-select turns itself off so you can spend Banishes/Rerolls manually |
+| 4.6 | Per-build blacklist in the Builds tab — each build has its own independent blacklist checked alongside the global blacklist during auto-select |
 | 4.5 | Main window enlarged (660x640 to 780x680) · Builds tab layout overlap fixes (Deactivate button and Build Name row no longer collide) |
 | 4.4 | Discovery tab (Novelty Mode, live run echo list) · Builds tab (named priority build lists, +50 score bonus, rank-agnostic groupId matching) · Novelty and build bonuses integrated into auto-select scoring · 5-tab GUI |
 | 4.3 | Banish/Reroll now clicks PerkChoiceN buttons directly (confirmed via frame-stack) rather than guessing API names |
