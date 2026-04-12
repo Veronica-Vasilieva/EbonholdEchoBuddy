@@ -1,3 +1,14 @@
+## [4.9] - 2026-04-12
+
+### Added
+- **Manual Banish and Reroll buttons** in the auto-select strip — always visible across all tabs, click to instantly fire Banish or Reroll while the echo selection screen is open
+- **`/ebscan` slash command** — dumps all available `PerkService` and `PerkUI` functions, plus the state of `banishButton`, `rerollButton`, and `PerkChoice1–20` frames; useful for diagnosing if banish/reroll stops working
+
+### Fixed
+- Banish/Reroll now targets the confirmed global frames `banishButton` and `rerollButton` directly (found via in-game testing) instead of scanning PerkChoiceN buttons by text
+- `GetScript("OnClick")` is called directly on the frame (more reliable than `:Click()` for custom server frames that may not respond to simulated click events)
+- API probe also checks `ProjectEbonhold.PerkUI` in addition to `PerkService` as a fallback
+
 ## [4.8] - 2026-04-09
 
 ### Fixed

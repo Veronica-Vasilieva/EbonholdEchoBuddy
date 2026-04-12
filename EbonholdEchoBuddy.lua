@@ -614,77 +614,73 @@ local function ShowToast(pickedName, score, infoLine, alts)
     end)
 end
 
--- Clicks the first PerkChoiceN button whose label text contains the given
--- search string (case-insensitive). The Banish and Reroll actions are presented
--- as PerkChoice buttons in the same frame template as echo picks; scanning by
--- button text is the most reliable way to find them since both showed up as
--- PerkChoice2 in frame-stack inspection.
-local function ClickPerkChoiceByText(searchText)
-    for i = 1, 9 do
-        local btn = _G["PerkChoice"..i]
-        if btn then
-            -- GetText() on a button returns its label; some buttons wrap the
-            -- text in a child FontString instead, so check both.
-            local txt = (btn.GetText and btn:GetText()) or ""
-            if txt == "" then
-                -- Try the standard Blizzard button text child name
-                local child = _G["PerkChoice"..i.."Text"]
-                if child and child.GetText then txt = child:GetText() or "" end
-            end
-            -- Strip colour codes before comparing
-            txt = txt:gsub("|c%x%x%x%x%x%x%x%x",""):gsub("|r","")
-            if txt:lower():find(searchText:lower(), 1, true) then
-                btn:Click()
-                return true
-            end
-        end
+-- Fires the OnClick script of a named global button frame.
+-- Calling GetScript("OnClick") directly is more reliable than :Click() for
+-- custom server frames. Falls back to :Click() if no script is registered.
+local function FireButton(frameName)
+    local btn = _G[frameName]
+    if not btn then return false end
+    if not btn:IsVisible() then return false end
+    local script = btn.GetScript and btn:GetScript("OnClick")
+    if script then
+        script(btn, "LeftButton", false)
+        return true
+    end
+    btn:Click()
+    return true
+end
+
+-- Fire the banish action.
+-- Primary: global frame "banishButton" (confirmed via in-game testing).
+-- Fallback: PerkService / PerkUI API name probe.
+local function TryBanish()
+    if FireButton("banishButton") then return true end
+    local svc = ProjectEbonhold and ProjectEbonhold.PerkService
+    if svc then
+        local fn = svc.BanishPerk or svc.Banish or svc.BanishPerks
+                or svc.SkipPerk   or svc.SkipPerks or svc.Skip
+        if fn then fn(svc) return true end
+    end
+    local pui = ProjectEbonhold and ProjectEbonhold.PerkUI
+    if pui then
+        local fn = pui.Banish or pui.BanishPerk or pui.DoBanish or pui.TriggerBanish
+        if fn then fn(pui) return true end
     end
     return false
 end
 
--- Attempts to banish or reroll the current echo offer.
--- Primary path:  click the PerkChoiceN button whose text matches "banish"/"reroll"
---   (confirmed via frame-stack: both Banish and Reroll buttons are PerkChoiceN frames)
--- Fallback path: probe PerkService for any known API function name.
--- Returns true if an action was successfully dispatched.
-local function TryBanishReroll()
-    local action = GetDB().blacklistAction or "banish"
-
-    -- UI click helpers (primary — frame names confirmed from frame-stack)
-    local function DoBanishClick()  return ClickPerkChoiceByText("banish") end
-    local function DoRerollClick()  return ClickPerkChoiceByText("reroll") end
-
-    -- PerkService API fallback — probe every plausible name variant
+-- Fire the reroll action.
+-- Primary: global frame "rerollButton" (confirmed via in-game testing).
+-- Fallback: PerkService / PerkUI API name probe.
+local function TryReroll()
+    if FireButton("rerollButton") then return true end
     local svc = ProjectEbonhold and ProjectEbonhold.PerkService
-    local function DoBanishAPI()
-        if not svc then return false end
-        local fn = svc.BanishPerk or svc.Banish or svc.BanishPerks
-                or svc.SkipPerk  or svc.SkipPerks or svc.Skip
-        if fn then fn() return true end
-        return false
-    end
-    local function DoRerollAPI()
-        if not svc then return false end
+    if svc then
         local fn = svc.RerollPerk or svc.Reroll or svc.RerollPerks
                 or svc.RefreshPerks or svc.RefreshPerk or svc.Refresh
-        if fn then fn() return true end
-        return false
+        if fn then fn(svc) return true end
     end
+    local pui = ProjectEbonhold and ProjectEbonhold.PerkUI
+    if pui then
+        local fn = pui.Reroll or pui.RerollPerk or pui.DoReroll or pui.TriggerReroll
+        if fn then fn(pui) return true end
+    end
+    return false
+end
 
-    local function DoBanish() return DoBanishClick() or DoBanishAPI() end
-    local function DoReroll() return DoRerollClick() or DoRerollAPI() end
-
+local function TryBanishReroll()
+    local action = GetDB().blacklistAction or "banish"
     if action == "banish" then
-        if DoBanish() then return true end
-        print("|cffFF4444[Echo Buddy]|r Banish unavailable — PerkChoice button not found and no matching PerkService function.")
+        if TryBanish() then return true end
+        print("|cffFF4444[Echo Buddy]|r Banish unavailable — banishButton not visible and no matching PerkService function.")
         return false
     elseif action == "reroll" then
-        if DoReroll() then return true end
-        print("|cffFF4444[Echo Buddy]|r Reroll unavailable — PerkChoice button not found and no matching PerkService function.")
+        if TryReroll() then return true end
+        print("|cffFF4444[Echo Buddy]|r Reroll unavailable — rerollButton not visible and no matching PerkService function.")
         return false
-    else  -- "banish_reroll": try banish first, fall back to reroll
-        if DoBanish() then return true end
-        if DoReroll() then
+    else  -- "banish_reroll"
+        if TryBanish() then return true end
+        if TryReroll() then
             print("|cffFFD700[Echo Buddy]|r Banish unavailable, used Reroll instead.")
             return true
         end
@@ -1809,6 +1805,39 @@ local function BuildMainFrame()
     _G["EBBAutoCheckText"]:SetText("|cffDDDDDDEnable|r")
     cb:SetChecked(GetDB().autoSelect)
     autoCheckbox = cb
+
+    -- Manual Banish / Reroll buttons — always visible, fire the server frames directly
+    local banishBtn = CreateFrame("Button","EBBBanishBtn",mainFrame,"GameMenuButtonTemplate")
+    banishBtn:SetSize(84,24)
+    banishBtn:SetPoint("TOPLEFT",mainFrame,"TOPLEFT",220,-80)
+    banishBtn:SetText("|cffFF6666Banish|r")
+    banishBtn:SetScript("OnClick", function()
+        if not TryBanish() then
+            print("|cffFF4444[Echo Buddy]|r Banish unavailable — banishButton frame not visible.")
+        end
+    end)
+    banishBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText("Manually trigger Banish.\nOnly works while the echo selection screen is open.", nil,nil,nil,nil,true)
+        GameTooltip:Show()
+    end)
+    banishBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+    local rerollBtn = CreateFrame("Button","EBBRerollBtn",mainFrame,"GameMenuButtonTemplate")
+    rerollBtn:SetSize(84,24)
+    rerollBtn:SetPoint("LEFT",banishBtn,"RIGHT",6,0)
+    rerollBtn:SetText("|cff44DDFF Reroll|r")
+    rerollBtn:SetScript("OnClick", function()
+        if not TryReroll() then
+            print("|cffFF4444[Echo Buddy]|r Reroll unavailable — rerollButton frame not visible.")
+        end
+    end)
+    rerollBtn:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText("Manually trigger Reroll.\nOnly works while the echo selection screen is open.", nil,nil,nil,nil,true)
+        GameTooltip:Show()
+    end)
+    rerollBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     local autoRoleLbl = mainFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
     autoRoleLbl:SetPoint("TOPLEFT",mainFrame,"TOPLEFT",488,-84)
@@ -3323,6 +3352,67 @@ SlashCmdList["EBBLACKLIST"] = function(msg)
             print("|cffFFD700[Echo Buddy]|r Blacklisted echoes ("..#list.."):")
             for _, name in ipairs(list) do print("  |cffAA2222-|r "..name) end
             print("|cff888888Right-click echoes in the Advisor, or use /ebblacklist clear|r")
+        end
+    end
+end
+
+-- Diagnostic: dumps all PerkService/PerkUI functions and visible PerkChoice frames
+-- so we can identify correct banish/reroll API names if the defaults don't work.
+SLASH_EBSCAN1="/ebscan"
+SlashCmdList["EBSCAN"] = function()
+    print("|cffFFD700[Echo Buddy] /ebscan — ProjectEbonhold API scan|r")
+
+    -- Scan PerkService
+    local svc = ProjectEbonhold and ProjectEbonhold.PerkService
+    if svc then
+        local fns = {}
+        for k, v in pairs(svc) do
+            if type(v) == "function" then table.insert(fns, k) end
+        end
+        table.sort(fns)
+        print("|cff00CCFFPerkService functions:|r")
+        for _, name in ipairs(fns) do print("  "..name) end
+    else
+        print("|cffFF4444PerkService: not found|r")
+    end
+
+    -- Scan PerkUI
+    local pui = ProjectEbonhold and ProjectEbonhold.PerkUI
+    if pui then
+        local fns = {}
+        for k, v in pairs(pui) do
+            if type(v) == "function" then table.insert(fns, k) end
+        end
+        table.sort(fns)
+        print("|cff00CCFFPerkUI functions:|r")
+        for _, name in ipairs(fns) do print("  "..name) end
+    else
+        print("|cffFF4444PerkUI: not found|r")
+    end
+
+    -- Scan named global frames: banishButton, rerollButton, PerkChoice1-20
+    print("|cff00CCFFKnown action frames:|r")
+    for _, fname in ipairs({"banishButton","rerollButton"}) do
+        local f = _G[fname]
+        if f then
+            local vis = f:IsVisible() and "|cff44FF44visible|r" or "|cffFF4444hidden|r"
+            local txt = (f.GetText and f:GetText()) or ""
+            print("  "..fname.." — "..vis..(txt~="" and (" '"..txt.."'") or ""))
+        else
+            print("  "..fname.." — |cff666666not found|r")
+        end
+    end
+    for i = 1, 20 do
+        local f = _G["PerkChoice"..i]
+        if f then
+            local vis = f:IsVisible() and "|cff44FF44visible|r" or "|cffFF4444hidden|r"
+            local txt = (f.GetText and f:GetText()) or ""
+            if txt == "" then
+                local c = _G["PerkChoice"..i.."Text"]
+                if c and c.GetText then txt = c:GetText() or "" end
+            end
+            txt = txt:gsub("|c%x%x%x%x%x%x%x%x",""):gsub("|r","")
+            print("  PerkChoice"..i.." — "..vis..(txt~="" and (" '"..txt.."'") or ""))
         end
     end
 end
