@@ -666,23 +666,14 @@ local function TryBanishReroll()
 
     if action == "banish" then
         if TryBanish() then return true end
-        print("|cffFF4444[Echo Buddy]|r Banish unavailable — "
-            ..(banishesLeft <= 0 and "no banish charges remaining." or "sendToServer not found."))
+        -- No charges or API unavailable — return false silently so the caller can fall back
         return false
     elseif action == "reroll" then
         if TryReroll() then return true end
-        print("|cffFF4444[Echo Buddy]|r Reroll unavailable — "
-            ..(rerollsLeft <= 0 and "no reroll charges remaining." or "sendToServer not found."))
         return false
     else  -- "banish_reroll": try banish first, fall back to reroll
         if TryBanish() then return true end
-        if TryReroll() then
-            if banishesLeft <= 0 then
-                print("|cffFFD700[Echo Buddy]|r No banishes left — used Reroll instead.")
-            end
-            return true
-        end
-        print("|cffFF4444[Echo Buddy]|r No banish or reroll charges remaining.")
+        if TryReroll() then return true end
         return false
     end
 end
@@ -764,8 +755,18 @@ local function DoAutoSelect(choices)
     end
 
     if #scored == 0 then
-        -- All offered echoes were blacklisted — the hook already handles auto-banish/reroll.
-        return
+        -- All offered echoes are blacklisted and charges are exhausted (otherwise
+        -- BanishRerollLoop would still be running). Score every choice ignoring
+        -- the blacklist and pick the least-bad one so the player isn't stuck.
+        for _, choice in ipairs(choices) do
+            local sid     = choice.spellId
+            local perk    = perkDB and perkDB[sid]
+            local quality = choice.quality or (perk and perk.quality) or 0
+            local score   = BlendedScore(sid, quality, config, classRole, depth, diffPreset)
+            local name    = GetCachedSpell(sid).name
+            table.insert(scored, {spellId=sid, score=score, name=name, quality=quality})
+        end
+        if #scored == 0 then return end
     end
     table.sort(scored, function(a,b) return a.score > b.score end)
 
@@ -865,8 +866,10 @@ local function InstallHook()
                         ShowToast("All choices blacklisted", 0, actionLabel.." triggered automatically", {})
                         -- Wait: selectDelay + 0.8 s for server round-trip then check again
                         After((db2.selectDelay or 0.6) + 0.8, BanishRerollLoop)
+                    else
+                        -- No charges left — fall back to picking the best of the blacklisted choices
+                        if db2.autoSelect then DoAutoSelect(current) end
                     end
-                    -- If TryBanishReroll returns false (no charges) the loop ends silently
                 end
 
                 After(GetDB().selectDelay or 0.6, BanishRerollLoop)

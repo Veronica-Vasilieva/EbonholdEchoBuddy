@@ -1,3 +1,10 @@
+## [4.16] - 2026-04-12
+
+### Fixed
+- No more chat spam when banish/reroll charges are exhausted — `TryBanishReroll` now returns false silently; the caller handles the outcome
+- When charges run out mid-loop, the addon now falls back to auto-selecting the best available echo from the blacklisted choices rather than doing nothing
+- `DoAutoSelect` fallback: if all choices are blacklisted and called directly (charges exhausted), scores every choice ignoring the blacklist and picks the least-bad option
+
 ## [4.15] - 2026-04-12
 
 ### Fixed
